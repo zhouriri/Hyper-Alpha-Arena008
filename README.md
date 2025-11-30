@@ -143,7 +143,7 @@ docker compose up -d --build # (or docker-compose up -d --build)
 
 ### Understanding Hyperliquid Authentication
 
-Hyperliquid is a decentralized exchange (DEX) where all trading operations are executed as on-chain transactions. Unlike centralized exchanges that use API keys, DEX platforms require **private keys** to cryptographically sign each transaction on the blockchain. This is not a limitation but a fundamental requirement of decentralized architecture - your trades are executed directly on-chain without intermediaries.
+> **⚠️ IMPORTANT**: Hyperliquid is a decentralized exchange (DEX) where all trading operations are executed as on-chain transactions. Unlike centralized exchanges that use API keys, DEX platforms require **private keys** to cryptographically sign each transaction on the blockchain. This is not a limitation but a fundamental requirement of decentralized architecture - your trades are executed directly on-chain without intermediaries.
 
 **Official Documentation:**
 - Hyperliquid API Signing: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/signing
@@ -165,25 +165,44 @@ Open http://localhost:8802 and navigate to **AI Traders** section:
 - API Key: Your LLM provider API key (OpenAI/Anthropic/Deepseek)
 - Base URL: Leave default or use custom endpoint
 
-**2. Configure Hyperliquid Wallet**
+**2. Get Your Private Key**
+
+Hyperliquid supports two wallet types. Choose the method that matches your setup:
+
+**Option A: Using EVM Wallet (MetaMask, Rabby, etc.)**
+- If you connected to Hyperliquid using MetaMask, Rabby, WalletConnect, or other Web3 wallets
+- Export your private key from your wallet software:
+  - **MetaMask**: Account Details → Export Private Key
+  - **Rabby**: Settings → Export Private Key
+  - Other wallets: Check their documentation for private key export
+- This is the most common method for users who already have Web3 wallets
+
+**Option B: Using Hyperliquid Email Wallet**
+- If you logged into Hyperliquid using email (not wallet connection)
+- Visit https://app.hyperliquid-testnet.xyz/ (testnet) or https://app.hyperliquid.xyz/ (mainnet)
+- Click "Export Email Wallet" in the settings dropdown
+- Follow the steps to copy your private key
+- Official guide: https://hyperliquid.gitbook.io/hyperliquid-docs/onboarding/export-your-email-wallet
+
+**3. Configure Hyperliquid Wallet**
 
 In the **Hyperliquid Wallets** section, you'll see two wallet panels:
 - **Testnet Wallet**: For risk-free testing with free test funds
 - **Mainnet Wallet**: For real trading with actual capital
 
 For each wallet:
-- Enter your Hyperliquid private key (get it from https://app.hyperliquid-testnet.xyz/ or https://app.hyperliquid.xyz/)
+- Enter your private key (obtained from step 2 above)
 - Set maximum leverage (1-50x)
 - Set default leverage (1-3x recommended)
 - Click **Save Wallet**
 
-**3. Set Global Trading Environment**
+**4. Set Global Trading Environment**
 
 Navigate to **Settings** or **Hyperliquid** page:
 - **TESTNET**: All AI Traders use testnet wallets (recommended for initial testing)
 - **MAINNET**: All AI Traders use mainnet wallets (real money)
 
-**4. Enable Auto Trading**
+**5. Enable Auto Trading**
 
 In your AI Trader configuration:
 - Toggle **Auto Trading** to ON
