@@ -1307,8 +1307,8 @@ def call_ai_for_decision(
                                 # Extract content from delta
                                 if data.get('choices'):
                                     delta = data['choices'][0].get('delta', {})
-                                    content = delta.get('content', '')
-                                    reasoning = delta.get('reasoning_content', '')
+                                    content = delta.get('content') or ''
+                                    reasoning = delta.get('reasoning_content') or ''
 
                                     full_content += content
                                     reasoning_content += reasoning
