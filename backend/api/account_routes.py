@@ -11,7 +11,7 @@ from decimal import Decimal
 import logging
 
 from database.connection import SessionLocal
-from database.models import Account, Position, Trade, CryptoPrice, AccountAssetSnapshot
+from database.models import Account, Position, Trade, CryptoPrice, AccountAssetSnapshot, HyperliquidWallet
 from services.asset_curve_calculator import invalidate_asset_curve_cache
 from services.ai_decision_service import build_chat_completion_endpoints, _extract_text_from_message
 from schemas.account import StrategyConfig, StrategyConfigUpdate
@@ -111,14 +111,20 @@ async def list_all_accounts(db: Session = Depends(get_db)):
                     # Keep database values on error
 
             # Derive wallet_address for mainnet accounts
+            # Check both old architecture (accounts table) and new architecture (hyperliquid_wallets table)
             wallet_address = None
             has_mainnet_wallet = False
-            mainnet_private_key = getattr(account, "hyperliquid_mainnet_private_key", None)
 
-            if mainnet_private_key:
+            # First check new multi-wallet architecture (hyperliquid_wallets table)
+            mainnet_wallet = db.query(HyperliquidWallet).filter(
+                HyperliquidWallet.account_id == account.id,
+                HyperliquidWallet.environment == "mainnet"
+            ).first()
+
+            if mainnet_wallet and mainnet_wallet.private_key_encrypted:
                 has_mainnet_wallet = True
                 try:
-                    decrypted_key = decrypt_private_key(mainnet_private_key)
+                    decrypted_key = decrypt_private_key(mainnet_wallet.private_key_encrypted)
                     if decrypted_key:
                         if not decrypted_key.startswith('0x'):
                             decrypted_key = '0x' + decrypted_key
@@ -126,8 +132,25 @@ async def list_all_accounts(db: Session = Depends(get_db)):
                         wallet_address = eth_account.address.lower()
                 except Exception as wallet_err:
                     logger.warning(
-                        f"Failed to derive wallet address for account {account.id}: {wallet_err}"
+                        f"Failed to derive wallet address from wallets table for account {account.id}: {wallet_err}"
                     )
+
+            # Fallback to old architecture (accounts table field)
+            if not has_mainnet_wallet:
+                mainnet_private_key = getattr(account, "hyperliquid_mainnet_private_key", None)
+                if mainnet_private_key:
+                    has_mainnet_wallet = True
+                    try:
+                        decrypted_key = decrypt_private_key(mainnet_private_key)
+                        if decrypted_key:
+                            if not decrypted_key.startswith('0x'):
+                                decrypted_key = '0x' + decrypted_key
+                            eth_account = EthAccount.from_key(decrypted_key)
+                            wallet_address = eth_account.address.lower()
+                    except Exception as wallet_err:
+                        logger.warning(
+                            f"Failed to derive wallet address for account {account.id}: {wallet_err}"
+                        )
 
             result.append({
                 "id": account.id,
@@ -1218,37 +1241,37 @@ async def check_mainnet_accounts(
         import requests
         from config.settings import HYPERLIQUID_BUILDER_CONFIG
         from eth_account import Account as EthAccount
-
-        # Query all accounts with mainnet configured and trading enabled
-        accounts = db.query(Account).filter(
-            Account.auto_trading_enabled == "true",
-            Account.hyperliquid_mainnet_private_key.isnot(None),
-            Account.hyperliquid_mainnet_private_key != ""
-        ).all()
-
-        logger.info(f"Found {len(accounts)} active mainnet trading accounts to check")
+        from services.hyperliquid_environment import decrypt_private_key
 
         unauthorized_accounts = []
+        checked_account_ids = set()
 
-        for account in accounts:
+        # === Check new multi-wallet architecture (hyperliquid_wallets table) ===
+        # Query accounts with mainnet wallet in hyperliquid_wallets table and trading enabled
+        mainnet_wallets = db.query(HyperliquidWallet, Account).join(
+            Account, HyperliquidWallet.account_id == Account.id
+        ).filter(
+            HyperliquidWallet.environment == "mainnet",
+            HyperliquidWallet.private_key_encrypted.isnot(None),
+            Account.auto_trading_enabled == "true"
+        ).all()
+
+        logger.info(f"Found {len(mainnet_wallets)} accounts with mainnet wallet in wallets table")
+
+        for wallet, account in mainnet_wallets:
+            checked_account_ids.add(account.id)
             try:
-                # Decrypt and derive wallet address from mainnet private key
-                from services.hyperliquid_environment import decrypt_private_key
-
-                decrypted_key = decrypt_private_key(account.hyperliquid_mainnet_private_key)
+                decrypted_key = decrypt_private_key(wallet.private_key_encrypted)
                 if not decrypted_key:
-                    logger.warning(f"Failed to decrypt mainnet key for account {account.id}")
+                    logger.warning(f"Failed to decrypt mainnet key for account {account.id} from wallets table")
                     continue
 
-                # Ensure 0x prefix
                 if not decrypted_key.startswith('0x'):
                     decrypted_key = '0x' + decrypted_key
 
-                # Derive wallet address
                 eth_account = EthAccount.from_key(decrypted_key)
                 wallet_address = eth_account.address.lower()
 
-                # Check builder fee authorization
                 response = requests.post(
                     "https://api.hyperliquid.xyz/info",
                     json={
@@ -1263,7 +1286,70 @@ async def check_mainnet_accounts(
                     max_fee = response.json()
                     required_fee = HYPERLIQUID_BUILDER_CONFIG.builder_fee
 
-                    # If not authorized or insufficient fee
+                    if max_fee < required_fee:
+                        unauthorized_accounts.append({
+                            "account_id": account.id,
+                            "account_name": account.name,
+                            "wallet_address": wallet_address,
+                            "max_fee": max_fee,
+                            "required_fee": required_fee
+                        })
+                        logger.info(
+                            f"Account {account.id} ({account.name}) unauthorized: "
+                            f"max_fee={max_fee}, required={required_fee}"
+                        )
+                else:
+                    logger.error(
+                        f"Failed to check authorization for account {account.id}: "
+                        f"HTTP {response.status_code}"
+                    )
+            except Exception as account_err:
+                logger.error(
+                    f"Error checking account {account.id} from wallets table: {account_err}",
+                    exc_info=True
+                )
+                continue
+
+        # === Fallback: Check old architecture (accounts table field) ===
+        # Query accounts with mainnet key in accounts table (not already checked)
+        old_accounts = db.query(Account).filter(
+            Account.auto_trading_enabled == "true",
+            Account.hyperliquid_mainnet_private_key.isnot(None),
+            Account.hyperliquid_mainnet_private_key != ""
+        ).all()
+
+        # Filter out accounts already checked via wallets table
+        old_accounts = [a for a in old_accounts if a.id not in checked_account_ids]
+
+        logger.info(f"Found {len(old_accounts)} additional accounts with mainnet key in accounts table")
+
+        for account in old_accounts:
+            try:
+                decrypted_key = decrypt_private_key(account.hyperliquid_mainnet_private_key)
+                if not decrypted_key:
+                    logger.warning(f"Failed to decrypt mainnet key for account {account.id}")
+                    continue
+
+                if not decrypted_key.startswith('0x'):
+                    decrypted_key = '0x' + decrypted_key
+
+                eth_account = EthAccount.from_key(decrypted_key)
+                wallet_address = eth_account.address.lower()
+
+                response = requests.post(
+                    "https://api.hyperliquid.xyz/info",
+                    json={
+                        "type": "maxBuilderFee",
+                        "user": wallet_address,
+                        "builder": HYPERLIQUID_BUILDER_CONFIG.builder_address
+                    },
+                    timeout=10
+                )
+
+                if response.status_code == 200:
+                    max_fee = response.json()
+                    required_fee = HYPERLIQUID_BUILDER_CONFIG.builder_fee
+
                     if max_fee < required_fee:
                         unauthorized_accounts.append({
                             "account_id": account.id,
@@ -1288,9 +1374,10 @@ async def check_mainnet_accounts(
                 )
                 continue
 
+        total_checked = len(mainnet_wallets) + len(old_accounts)
         logger.info(
             f"Builder fee check complete: {len(unauthorized_accounts)} "
-            f"unauthorized out of {len(accounts)} total"
+            f"unauthorized out of {total_checked} total"
         )
 
         return {
