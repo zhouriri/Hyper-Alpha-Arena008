@@ -95,6 +95,54 @@ class SignalBacktestService:
             "triggers": triggers,
         }
 
+    def backtest_temp_signal(
+        self, db: Session, symbol: str, trigger_condition: Dict,
+        kline_min_ts: int = None, kline_max_ts: int = None
+    ) -> Dict[str, Any]:
+        """
+        Backtest a temporary signal configuration without saving to database.
+        Used for AI signal creation preview.
+
+        Args:
+            db: Database session
+            symbol: Trading symbol (e.g., 'BTC')
+            trigger_condition: Signal trigger condition dict
+            kline_min_ts: Minimum K-line timestamp in milliseconds
+            kline_max_ts: Maximum K-line timestamp in milliseconds
+        """
+        # Clear bucket cache for fresh data
+        self._bucket_cache = {}
+
+        # Build temporary signal definition
+        signal_def = {
+            "id": None,
+            "signal_name": "Temporary Preview",
+            "description": "AI-generated signal preview",
+            "trigger_condition": trigger_condition,
+            "enabled": True
+        }
+
+        metric = trigger_condition.get("metric")
+        time_window = trigger_condition.get("time_window", "5m")
+
+        if not metric:
+            return {"error": "Signal has no metric configured"}
+
+        # Find triggers within the specified time range
+        triggers = self._find_triggers_in_range(
+            db, signal_def, symbol, time_window, kline_min_ts, kline_max_ts
+        )
+
+        return {
+            "signal_id": None,
+            "signal_name": "Temporary Preview",
+            "symbol": symbol,
+            "time_window": time_window,
+            "condition": trigger_condition,
+            "trigger_count": len(triggers),
+            "triggers": triggers,
+        }
+
     def _find_triggers_in_range(
         self, db: Session, signal_def: Dict, symbol: str, time_window: str,
         kline_min_ts: int = None, kline_max_ts: int = None

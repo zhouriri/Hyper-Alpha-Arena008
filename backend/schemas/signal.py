@@ -59,6 +59,7 @@ class SignalPoolCreate(BaseModel):
     signal_ids: List[int] = []
     symbols: List[str] = []
     enabled: bool = True
+    logic: str = "OR"  # AND or OR logic for signal triggering
 
 
 class SignalPoolUpdate(BaseModel):
@@ -67,6 +68,7 @@ class SignalPoolUpdate(BaseModel):
     signal_ids: Optional[List[int]] = None
     symbols: Optional[List[str]] = None
     enabled: Optional[bool] = None
+    logic: Optional[str] = None  # AND or OR logic
 
 
 class SignalPoolResponse(BaseModel):
@@ -76,6 +78,7 @@ class SignalPoolResponse(BaseModel):
     signal_ids: List[int]
     symbols: List[str]
     enabled: bool
+    logic: str = "OR"  # AND or OR logic
     created_at: datetime
 
     class Config:

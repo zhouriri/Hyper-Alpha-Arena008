@@ -283,6 +283,41 @@ def backtest_signal(
     return result
 
 
+from pydantic import BaseModel, Field
+
+
+class TempBacktestRequest(BaseModel):
+    """Request for temporary signal backtest (without saving to database)"""
+    symbol: str = Field(..., description="Trading symbol (e.g., BTC)")
+    trigger_condition: dict = Field(..., alias="triggerCondition", description="Signal trigger condition")
+    kline_min_ts: Optional[int] = Field(None, alias="klineMinTs", description="Min K-line timestamp in ms")
+    kline_max_ts: Optional[int] = Field(None, alias="klineMaxTs", description="Max K-line timestamp in ms")
+
+    class Config:
+        populate_by_name = True
+
+
+@router.post("/backtest-preview")
+def backtest_preview(
+    request: TempBacktestRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Backtest a signal configuration without saving to database.
+    Used for AI signal creation preview before actually creating the signal.
+    """
+    from services.signal_backtest_service import signal_backtest_service
+
+    result = signal_backtest_service.backtest_temp_signal(
+        db=db,
+        symbol=request.symbol,
+        trigger_condition=request.trigger_condition,
+        kline_min_ts=request.kline_min_ts,
+        kline_max_ts=request.kline_max_ts
+    )
+    return result
+
+
 # ============ Trigger Logs ============
 
 @router.get("/logs", response_model=SignalTriggerLogsResponse)
@@ -428,3 +463,106 @@ def reset_signal_states(
     from services.signal_detection_service import signal_detection_service
     signal_detection_service.reset_state(signal_id, pool_id, symbol)
     return {"message": "Signal and pool states reset successfully"}
+
+
+# ============ AI Signal Generation Chat APIs ============
+
+from services.ai_signal_generation_service import (
+    generate_signal_with_ai,
+    get_signal_conversation_history,
+    get_signal_conversation_messages
+)
+from database.models import User
+
+
+class AiSignalChatRequest(BaseModel):
+    """Request to send a message to AI signal generation chat"""
+    account_id: int = Field(..., alias="accountId")
+    user_message: str = Field(..., alias="userMessage")
+    conversation_id: Optional[int] = Field(None, alias="conversationId")
+
+    class Config:
+        populate_by_name = True
+
+
+class AiSignalChatResponse(BaseModel):
+    """Response from AI signal generation chat"""
+    success: bool
+    conversation_id: Optional[int] = Field(None, alias="conversationId")
+    message_id: Optional[int] = Field(None, alias="messageId")
+    content: Optional[str] = None
+    signal_configs: Optional[List[dict]] = Field(None, alias="signalConfigs")
+    error: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
+
+
+@router.post("/ai-chat", response_model=AiSignalChatResponse)
+def ai_signal_chat(
+    request: AiSignalChatRequest,
+    db: Session = Depends(get_db)
+) -> AiSignalChatResponse:
+    """Send a message to AI signal generation assistant"""
+    # Get user (default user for now)
+    user = db.query(User).filter(User.username == "default").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    result = generate_signal_with_ai(
+        db=db,
+        account_id=request.account_id,
+        user_message=request.user_message,
+        conversation_id=request.conversation_id,
+        user_id=user.id
+    )
+
+    return AiSignalChatResponse(
+        success=result.get("success", False),
+        conversation_id=result.get("conversation_id"),
+        message_id=result.get("message_id"),
+        content=result.get("content"),
+        signal_configs=result.get("signal_configs"),
+        error=result.get("error")
+    )
+
+
+@router.get("/ai-conversations")
+def list_ai_signal_conversations(
+    limit: int = 20,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Get list of AI signal generation conversations"""
+    user = db.query(User).filter(User.username == "default").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    conversations = get_signal_conversation_history(
+        db=db,
+        user_id=user.id,
+        limit=limit
+    )
+
+    return {"conversations": conversations}
+
+
+@router.get("/ai-conversations/{conversation_id}/messages")
+def get_ai_signal_conversation_messages(
+    conversation_id: int,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Get all messages in a specific conversation"""
+    user = db.query(User).filter(User.username == "default").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    messages = get_signal_conversation_messages(
+        db=db,
+        conversation_id=conversation_id,
+        user_id=user.id
+    )
+
+    if messages is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    return {"messages": messages}

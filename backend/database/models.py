@@ -635,6 +635,46 @@ class AiPromptMessage(Base):
     conversation = relationship("AiPromptConversation", back_populates="messages")
 
 
+class AiSignalConversation(Base):
+    """AI Signal Creation Conversation Sessions"""
+    __tablename__ = "ai_signal_conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False, default="New Signal")
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), index=True)
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
+    # Relationships
+    user = relationship("User")
+    messages = relationship(
+        "AiSignalMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="AiSignalMessage.created_at"
+    )
+
+
+class AiSignalMessage(Base):
+    """Messages in AI Signal Creation Conversations"""
+    __tablename__ = "ai_signal_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("ai_signal_conversations.id"), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # "user" or "assistant"
+    content = Column(Text, nullable=False)  # Message content (markdown)
+
+    # For assistant messages: extracted signal configs from ```signal-config``` code blocks
+    signal_configs = Column(Text, nullable=True)  # JSON array of signal configurations
+
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), index=True)
+
+    # Relationships
+    conversation = relationship("AiSignalConversation", back_populates="messages")
+
+
 # ============================================================================
 # Market Flow Data Tables (for fund flow analysis)
 # ============================================================================

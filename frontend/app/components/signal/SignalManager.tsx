@@ -22,8 +22,9 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Plus, Trash2, Edit, Activity, Eye } from 'lucide-react'
+import { Plus, Trash2, Edit, Activity, Eye, Sparkles } from 'lucide-react'
 import SignalPreviewChart from './SignalPreviewChart'
+import AiSignalChatModal from './AiSignalChatModal'
 import PacmanLoader from '../ui/pacman-loader'
 
 // Types
@@ -245,6 +246,11 @@ export default function SignalManager() {
   const [previewData, setPreviewData] = useState<any>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
 
+  // AI Signal Chat state
+  const [aiChatOpen, setAiChatOpen] = useState(false)
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [accountsLoading, setAccountsLoading] = useState(false)
+
   const loadData = async () => {
     try {
       setLoading(true)
@@ -257,6 +263,22 @@ export default function SignalManager() {
       toast.error('Failed to load signal data')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadAccounts = async () => {
+    try {
+      setAccountsLoading(true)
+      const res = await fetch('/api/account/list')
+      if (res.ok) {
+        const data = await res.json()
+        // API returns array directly, not {accounts: [...]}
+        setAccounts(Array.isArray(data) ? data : data.accounts || [])
+      }
+    } catch (err) {
+      console.error('Failed to load accounts:', err)
+    } finally {
+      setAccountsLoading(false)
     }
   }
 
@@ -273,6 +295,7 @@ export default function SignalManager() {
   // Initial load
   useEffect(() => {
     loadData()
+    loadAccounts()
   }, [])
 
   // Auto-refresh logs only when on logs tab (silent, no loading)
@@ -456,6 +479,95 @@ export default function SignalManager() {
     }
   }
 
+  // AI Signal handlers
+  const handleAiCreateSignal = async (config: any) => {
+    try {
+      const signalData = {
+        signal_name: config.name,
+        description: config.description || '',
+        trigger_condition: config.trigger_condition,
+        enabled: true,
+      }
+      await createSignal(signalData)
+      toast.success('Signal created successfully')
+      loadData()
+      setAiChatOpen(false)
+    } catch (err) {
+      toast.error('Failed to create signal')
+    }
+  }
+
+  const handleAiPreviewSignal = async (config: any) => {
+    // Create a temporary signal object for preview
+    const tempSignal: SignalDefinition = {
+      id: 0,
+      signal_name: config.name,
+      description: config.description || '',
+      trigger_condition: config.trigger_condition,
+      enabled: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    const symbol = config.symbol || 'BTC'
+    setPreviewSignal(tempSignal)
+    setPreviewSymbol(symbol)
+    setPreviewDialogOpen(true)
+    setPreviewLoading(true)
+    setPreviewData(null)
+
+    try {
+      const timeWindow = config.trigger_condition?.time_window || '5m'
+
+      // Fetch K-lines
+      const klineRes = await fetch(
+        `/api/market/kline-with-indicators/${symbol}?market=hyperliquid&period=${timeWindow}&count=500`
+      )
+      if (!klineRes.ok) throw new Error('Failed to fetch K-line data')
+      const klineData = await klineRes.json()
+
+      if (!klineData.klines || klineData.klines.length === 0) {
+        throw new Error('No K-line data available')
+      }
+
+      const klines = klineData.klines
+      const klineMinTs = Math.min(...klines.map((k: any) => k.timestamp)) * 1000
+      const klineMaxTs = Math.max(...klines.map((k: any) => k.timestamp)) * 1000
+
+      // Use temp backtest API for preview
+      const triggerRes = await fetch('/api/signals/backtest-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          triggerCondition: config.trigger_condition,
+          klineMinTs,
+          klineMaxTs,
+        }),
+      })
+      if (!triggerRes.ok) throw new Error('Failed to fetch trigger data')
+      const triggerData = await triggerRes.json()
+
+      const formattedKlines = klines.map((k: any) => ({
+        timestamp: k.timestamp * 1000,
+        open: k.open,
+        high: k.high,
+        low: k.low,
+        close: k.close,
+      }))
+
+      setPreviewData({
+        ...triggerData,
+        klines: formattedKlines,
+        kline_count: formattedKlines.length,
+      })
+    } catch (err) {
+      toast.error('Failed to load preview data')
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
   const openPoolDialog = (pool?: SignalPool) => {
     if (pool) {
       setEditingPool(pool)
@@ -545,7 +657,18 @@ export default function SignalManager() {
             <TabsTrigger value="logs" className="min-w-[120px]">Trigger Logs</TabsTrigger>
           </TabsList>
           {activeTab === 'signals' && (
-            <Button onClick={() => openSignalDialog()} size="sm"><Plus className="w-4 h-4 mr-2" />New Signal</Button>
+            <div className="flex gap-2">
+              <Button onClick={() => openSignalDialog()} size="sm">
+                <Plus className="w-4 h-4 mr-2" />New Signal
+              </Button>
+              <Button
+                onClick={() => setAiChatOpen(true)}
+                size="sm"
+                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white border-0 shadow-lg hover:shadow-xl transition-all"
+              >
+                <Sparkles className="w-4 h-4 mr-2" />AI Set Signal
+              </Button>
+            </div>
           )}
           {activeTab === 'pools' && (
             <Button onClick={() => openPoolDialog()} size="sm"><Plus className="w-4 h-4 mr-2" />New Pool</Button>
@@ -1056,7 +1179,14 @@ export default function SignalManager() {
               <PacmanLoader className="w-16 h-8" />
               <span className="text-muted-foreground">Loading preview data...</span>
             </div>
-          ) : previewData ? (
+          ) : previewData?.error ? (
+            <div className="flex items-center justify-center h-[500px]">
+              <div className="text-center text-destructive">
+                <p className="font-medium">Preview Error</p>
+                <p className="text-sm mt-2">{previewData.error}</p>
+              </div>
+            </div>
+          ) : previewData?.klines ? (
             <div className="space-y-4">
               {/* Signal Info */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -1090,8 +1220,8 @@ export default function SignalManager() {
               <div className="border rounded-lg overflow-hidden">
                 <SignalPreviewChart
                   klines={previewData.klines}
-                  triggers={previewData.triggers}
-                  timeWindow={previewData.time_window}
+                  triggers={previewData.triggers || []}
+                  timeWindow={previewData.time_window || '5m'}
                 />
               </div>
 
@@ -1117,6 +1247,16 @@ export default function SignalManager() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* AI Signal Chat Modal */}
+      <AiSignalChatModal
+        open={aiChatOpen}
+        onOpenChange={setAiChatOpen}
+        onCreateSignal={handleAiCreateSignal}
+        onPreviewSignal={handleAiPreviewSignal}
+        accounts={accounts}
+        accountsLoading={accountsLoading}
+      />
     </div>
   )
 }
