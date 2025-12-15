@@ -27,6 +27,7 @@ MIGRATIONS = [
     "add_wallet_address_to_hyperliquid_trades.py",
     "add_ai_signal_chat.py",
     "add_signal_pool_to_strategy.py",
+    "add_logic_to_signal_pools.py",
 ]
 
 def check_migration_table():
