@@ -1031,6 +1031,10 @@ class SignalBacktestService:
                         all_met = False
                         break
 
+                    # Determine actual direction based on log_ratio (not the filter condition)
+                    # log_ratio > 0 means buyers dominate, log_ratio < 0 means sellers dominate
+                    actual_direction = "buy" if log_ratio > 0 else "sell"
+
                     signal_values.append({
                         "signal_id": signal_id,
                         "signal_name": sig_def["signal_name"],
@@ -1038,7 +1042,7 @@ class SignalBacktestService:
                         "value": taker_data["ratio"],
                         "threshold": ratio_threshold,
                         # taker_volume specific fields for tooltip display
-                        "direction": direction,
+                        "direction": actual_direction,  # Use actual direction, not filter condition
                         "ratio": taker_data["ratio"],
                         "volume": total_volume,
                         "ratio_threshold": ratio_threshold,
