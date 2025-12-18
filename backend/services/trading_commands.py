@@ -404,7 +404,7 @@ def place_ai_driven_hyperliquid_order(
                 continue
 
             # Get global trading mode (environment) for Hyperliquid
-            from services.hyperliquid_environment import get_global_trading_mode
+            from services.hyperliquid_environment import get_global_trading_mode, get_leverage_settings
             environment = get_global_trading_mode(db)
             logger.info(f"Processing Hyperliquid trading for account: {account.name} (environment: {environment})")
 
@@ -591,13 +591,17 @@ def place_ai_driven_hyperliquid_order(
                     save_ai_decision(db, account, decision, portfolio, executed=False, **decision_kwargs)
                     continue
 
-                max_leverage = getattr(account, "max_leverage", 3)
+                # Get leverage settings from HyperliquidWallet (or Account fallback)
+                leverage_settings = get_leverage_settings(db, account.id, environment)
+                max_leverage = leverage_settings["max_leverage"]
+                default_leverage = leverage_settings["default_leverage"]
+
                 if leverage < 1 or leverage > max_leverage:
                     logger.warning(
                         f"Invalid leverage {leverage}x from AI (max: {max_leverage}x), "
-                        f"using default {getattr(account, 'default_leverage', 1)}x"
+                        f"using default {default_leverage}x"
                     )
-                    leverage = getattr(account, "default_leverage", 1)
+                    leverage = default_leverage
 
                 if target_portion <= 0 or target_portion > 1:
                     logger.warning(f"Invalid target_portion {target_portion} from AI for {account.name}")
