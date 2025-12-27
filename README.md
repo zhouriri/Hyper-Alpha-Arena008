@@ -38,10 +38,12 @@ Hyper Alpha Arena is a production-ready AI trading platform where Large Language
 
 ## Who is this for
 
-- **Non-technical traders**: Built-in AI assistants help you create trading signals and strategy prompts through natural conversation—no coding required
-- **Quantitative researchers**: Test LLM-driven strategies with real market data on testnet before deploying real capital
-- **Hyperliquid users**: Native integration with both testnet (free paper trading) and mainnet (1-50x leverage perpetuals)
-- **AI enthusiasts**: Experiment with different LLMs (GPT, Claude, Deepseek) competing in real trading scenarios
+| Who you are | What you get |
+|-------------|--------------|
+| **Non-technical traders** | Built-in AI assistants help you create trading signals and strategy prompts through natural conversation—no coding required |
+| **Quantitative researchers** | Test LLM-driven strategies with real market data on testnet before deploying real capital |
+| **Hyperliquid users** | Native integration with both testnet (free paper trading) and mainnet (1-50x leverage perpetuals) |
+| **AI enthusiasts** | Experiment with different LLMs (GPT, Claude, Deepseek) competing in real trading scenarios |
 
 **Trading Modes:**
 - **Hyperliquid Testnet (Paper Trading)**: Risk-free testing with real market mechanics, free test funds, and actual order book - a superior paper trading experience
@@ -75,6 +77,10 @@ Hyper Alpha Arena is a production-ready AI trading platform where Large Language
   - AI Signal Generator: Natural language to signal configuration
   - Combine with scheduled triggers for comprehensive coverage
 - **AI Trader Management**: Create and manage multiple AI trading agents with independent configurations
+- **AI Attribution Analysis**: Understand what's working and what's not
+  - Performance breakdown by symbol, strategy, and trigger type
+  - Win rate, profit factor, and PnL tracking
+  - AI-powered diagnosis to identify strategy weaknesses
 
 ### Hyperliquid Trading Features
 - **Perpetual Contract Trading**: Real order execution on Hyperliquid DEX
