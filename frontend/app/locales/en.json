@@ -736,6 +736,8 @@
     "scheduledOnly": "Only use scheduled interval trigger",
     "triggerInterval": "Trigger Interval (seconds)",
     "triggerIntervalHint": "Maximum time between triggers (default: 150s)",
+    "scheduledTriggerDisabled": "Scheduled trigger is disabled. AI will only run on signal pool triggers.",
+    "noTriggerWarning": "Warning: This AI Trader has no active trigger method. It will not execute any trades until you enable scheduled trigger or bind a signal pool.",
     "strategyStatus": "Strategy Status",
     "enabledDesc": "Enabled: strategy reacts to signals and scheduled triggers.",
     "disabledDesc": "Disabled: strategy will not auto-trade.",

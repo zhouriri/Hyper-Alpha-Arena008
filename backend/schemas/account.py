@@ -51,6 +51,7 @@ class StrategyConfigBase(BaseModel):
     interval_seconds: Optional[int] = None
     tick_batch_size: Optional[int] = None
     enabled: bool = True
+    scheduled_trigger_enabled: bool = True  # Enable/disable scheduled trigger
     price_threshold: Optional[float] = None  # Deprecated, kept for compatibility
     signal_pool_id: Optional[int] = None  # Signal pool binding for signal-based triggering
 

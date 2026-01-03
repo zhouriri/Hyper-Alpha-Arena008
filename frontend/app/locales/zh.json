@@ -746,6 +746,8 @@
     "scheduledOnly": "仅使用定时触发",
     "triggerInterval": "触发间隔（秒）",
     "triggerIntervalHint": "触发之间的最大时间间隔（默认：150秒）",
+    "scheduledTriggerDisabled": "定时触发已禁用。AI 仅在信号池触发时运行。",
+    "noTriggerWarning": "警告：此 AI Trader 没有活跃的触发方式。在启用定时触发或绑定信号池之前，它不会执行任何交易。",
     "strategyStatus": "策略状态",
     "enabledDesc": "已启用：策略响应信号和定时触发。",
     "disabledDesc": "已禁用：策略不会自动交易。",

@@ -48,6 +48,7 @@ class StrategyState:
     trigger_interval: int   # Trigger interval (seconds) - scheduled trigger fallback
     signal_pool_id: Optional[int]  # Signal pool binding for signal-based triggering
     enabled: bool
+    scheduled_trigger_enabled: bool  # Enable/disable scheduled trigger
     last_trigger_at: Optional[datetime]
     running: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -55,6 +56,10 @@ class StrategyState:
     def should_trigger_scheduled(self, event_time: datetime) -> bool:
         """Check if strategy should trigger based on scheduled time interval (fallback)"""
         if not self.enabled:
+            return False
+
+        # Check if scheduled trigger is disabled
+        if not self.scheduled_trigger_enabled:
             return False
 
         # Quick check without lock to avoid unnecessary contention
@@ -154,6 +159,7 @@ class StrategyManager:
                         trigger_interval=strategy.trigger_interval,
                         signal_pool_id=strategy.signal_pool_id,
                         enabled=strategy.enabled == "true",
+                        scheduled_trigger_enabled=strategy.scheduled_trigger_enabled,
                         last_trigger_at=_as_aware(strategy.last_trigger_at),
                     )
                     self.strategies[strategy.account_id] = state
@@ -163,6 +169,7 @@ class StrategyManager:
                         f"[DEBUG] Loaded strategy for account {strategy.account_id} ({account.name}): "
                         f"interval={strategy.trigger_interval}s ({strategy.trigger_interval/60:.1f}min), "
                         f"signal_pool_id={strategy.signal_pool_id}, enabled={strategy.enabled}, "
+                        f"scheduled_trigger={strategy.scheduled_trigger_enabled}, "
                         f"last_trigger={state.last_trigger_at}"
                     )
 
@@ -382,6 +389,7 @@ class HyperliquidStrategyManager(StrategyManager):
                         trigger_interval=strategy.trigger_interval,
                         signal_pool_id=strategy.signal_pool_id,
                         enabled=strategy.enabled == "true",
+                        scheduled_trigger_enabled=strategy.scheduled_trigger_enabled,
                         last_trigger_at=_as_aware(strategy.last_trigger_at),
                     )
                     self.strategies[strategy.account_id] = state
@@ -390,6 +398,7 @@ class HyperliquidStrategyManager(StrategyManager):
                         f"[HyperliquidStrategy DEBUG] Loaded strategy for account {strategy.account_id} ({account.name}): "
                         f"interval={strategy.trigger_interval}s ({strategy.trigger_interval/60:.1f}min), "
                         f"signal_pool_id={strategy.signal_pool_id}, enabled={strategy.enabled}, "
+                        f"scheduled_trigger={strategy.scheduled_trigger_enabled}, "
                         f"last_trigger={state.last_trigger_at}"
                     )
 

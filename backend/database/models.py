@@ -276,6 +276,7 @@ class AccountStrategyConfig(Base):
     # because signal_pools table is managed via raw SQL, not SQLAlchemy models
     signal_pool_id = Column(Integer, nullable=True)
     enabled = Column(String(10), nullable=False, default="true")
+    scheduled_trigger_enabled = Column(Boolean, nullable=False, default=True)  # Enable/disable scheduled trigger
     last_trigger_at = Column(TIMESTAMP, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(

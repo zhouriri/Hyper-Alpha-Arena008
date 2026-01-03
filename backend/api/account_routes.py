@@ -71,6 +71,7 @@ def _serialize_strategy(account: Account, strategy, db: Session = None) -> Strat
         interval_seconds=strategy.trigger_interval or 150,
         tick_batch_size=1,
         enabled=(strategy.enabled == "true" and account.auto_trading_enabled == "true"),
+        scheduled_trigger_enabled=strategy.scheduled_trigger_enabled,
         last_trigger_at=last_iso,
         price_threshold=strategy.price_threshold or 1.0,
         signal_pool_id=strategy.signal_pool_id,
@@ -308,6 +309,7 @@ async def update_account_strategy(
         price_threshold=price_threshold,
         trigger_interval=trigger_interval,
         enabled=payload.enabled,
+        scheduled_trigger_enabled=payload.scheduled_trigger_enabled,
         signal_pool_id=payload.signal_pool_id,
     )
 

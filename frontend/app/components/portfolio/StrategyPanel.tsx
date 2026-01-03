@@ -17,6 +17,7 @@ interface StrategyConfig {
   price_threshold: number
   interval_seconds: number
   enabled: boolean
+  scheduled_trigger_enabled: boolean
   last_trigger_at?: string | null
   signal_pool_id?: number | null
   signal_pool_name?: string | null
@@ -68,6 +69,7 @@ export default function StrategyPanel({
   const [priceThreshold, setPriceThreshold] = useState<string>('1.0')
   const [triggerInterval, setTriggerInterval] = useState<string>('150')
   const [enabled, setEnabled] = useState<boolean>(true)
+  const [scheduledTriggerEnabled, setScheduledTriggerEnabled] = useState<boolean>(true)
   const [lastTriggerAt, setLastTriggerAt] = useState<string | null>(null)
   const [signalPoolId, setSignalPoolId] = useState<number | null>(null)
   const [signalPools, setSignalPools] = useState<SignalPool[]>([])
@@ -108,6 +110,7 @@ export default function StrategyPanel({
         setPriceThreshold((strategy.price_threshold ?? 1.0).toString())
         setTriggerInterval((strategy.interval_seconds ?? 150).toString())
         setEnabled(strategy.enabled)
+        setScheduledTriggerEnabled(strategy.scheduled_trigger_enabled ?? true)
         setLastTriggerAt(strategy.last_trigger_at ?? null)
         setSignalPoolId(strategy.signal_pool_id ?? null)
       }
@@ -236,6 +239,7 @@ export default function StrategyPanel({
         price_threshold: threshold,
         interval_seconds: interval,
         enabled: enabled,
+        scheduled_trigger_enabled: scheduledTriggerEnabled,
         trigger_mode: "unified",
         tick_batch_size: 1,
         signal_pool_id: signalPoolId,
@@ -255,6 +259,7 @@ export default function StrategyPanel({
       setPriceThreshold((result.price_threshold ?? 1.0).toString())
       setTriggerInterval((result.interval_seconds ?? 150).toString())
       setEnabled(result.enabled)
+      setScheduledTriggerEnabled(result.scheduled_trigger_enabled ?? true)
       setLastTriggerAt(result.last_trigger_at ?? null)
       setSignalPoolId(result.signal_pool_id ?? null)
 
@@ -265,7 +270,7 @@ export default function StrategyPanel({
     } finally {
       setSaving(false)
     }
-  }, [accountId, priceThreshold, triggerInterval, enabled, signalPoolId, resetMessages])
+  }, [accountId, priceThreshold, triggerInterval, enabled, scheduledTriggerEnabled, signalPoolId, resetMessages])
 
   const handleSaveGlobal = useCallback(async () => {
     resetMessages()
@@ -397,19 +402,48 @@ export default function StrategyPanel({
                 </section>
 
                 <section className="space-y-2">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide">{t('strategy.triggerInterval', 'Trigger Interval (seconds)')}</div>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">{t('strategy.triggerInterval', 'Trigger Interval (seconds)')}</div>
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={scheduledTriggerEnabled}
+                        onChange={(event) => {
+                          setScheduledTriggerEnabled(event.target.checked)
+                          resetMessages()
+                        }}
+                        className="h-4 w-4"
+                      />
+                      {scheduledTriggerEnabled ? t('common.enabled', 'Enabled') : t('common.disabled', 'Disabled')}
+                    </label>
+                  </div>
                   <Input
                     type="number"
                     min={30}
                     step={30}
                     value={triggerInterval}
+                    disabled={!scheduledTriggerEnabled}
                     onChange={(event) => {
                       setTriggerInterval(event.target.value)
                       resetMessages()
                     }}
+                    className={!scheduledTriggerEnabled ? 'opacity-50' : ''}
                   />
-                  <p className="text-xs text-muted-foreground">{t('strategy.triggerIntervalHint', 'Maximum time between triggers (default: 150s)')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {scheduledTriggerEnabled
+                      ? t('strategy.triggerIntervalHint', 'Maximum time between triggers (default: 150s)')
+                      : t('strategy.scheduledTriggerDisabled', 'Scheduled trigger is disabled. AI will only run on signal pool triggers.')}
+                  </p>
                 </section>
+
+                {/* Warning when no trigger method is active */}
+                {!scheduledTriggerEnabled && !signalPoolId && (
+                  <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                      {t('strategy.noTriggerWarning', 'Warning: This AI Trader has no active trigger method. It will not execute any trades until you enable scheduled trigger or bind a signal pool.')}
+                    </p>
+                  </div>
+                )}
 
                 <section className="space-y-2">
                   <div className="flex items-center justify-between">
