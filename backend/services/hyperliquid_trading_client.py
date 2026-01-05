@@ -13,6 +13,7 @@ import time
 import json
 import math
 import requests
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from decimal import Decimal, ROUND_HALF_UP, ROUND_FLOOR, ROUND_CEILING, InvalidOperation, getcontext
 from eth_account import Account as EthAccount
@@ -671,6 +672,57 @@ class HyperliquidTradingClient:
             )
             logger.error(f"Failed to get user fills: {e}", exc_info=True)
             raise
+
+    def query_order_by_oid(self, db: Session, order_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Query order details by order ID from Hyperliquid API.
+
+        Args:
+            db: Database session (for environment validation)
+            order_id: The order ID to query
+
+        Returns:
+            Order dict with status and statusTimestamp if found, None otherwise
+        """
+        self._validate_environment(db)
+
+        try:
+            logger.debug(f"Querying order {order_id} for wallet {self.wallet_address}")
+            result = self.sdk_info.query_order_by_oid(self.wallet_address, order_id)
+            return result
+        except Exception as e:
+            logger.warning(f"Failed to query order {order_id}: {e}")
+            return None
+
+    def get_order_trigger_time(self, db: Session, order_id: int) -> Optional[datetime]:
+        """
+        Get the actual trigger/fill time for an order.
+
+        Args:
+            db: Database session
+            order_id: The order ID to query
+
+        Returns:
+            datetime of when the order was filled/triggered, or None if not available
+        """
+        result = self.query_order_by_oid(db, order_id)
+        if not result:
+            return None
+
+        # Extract statusTimestamp from the response
+        # Response format: {'status': 'order', 'order': {'order': {...}, 'status': 'filled', 'statusTimestamp': 1767580190625}}
+        order_data = result.get("order", {})
+        status_timestamp = order_data.get("statusTimestamp")
+
+        if status_timestamp:
+            try:
+                # statusTimestamp is in milliseconds
+                return datetime.fromtimestamp(status_timestamp / 1000, tz=timezone.utc)
+            except Exception as e:
+                logger.warning(f"Failed to parse statusTimestamp {status_timestamp}: {e}")
+                return None
+
+        return None
 
     def _get_historical_orders(self, db: Session) -> List[Dict[str, Any]]:
         """

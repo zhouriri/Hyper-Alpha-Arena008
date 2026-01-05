@@ -12,8 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { AlertTriangle, Sparkles, X, Info, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Sparkles, X, Info, RefreshCw, Play } from 'lucide-react'
 import AiAttributionChatModal from './AiAttributionChatModal'
+import TradeReplayModal from './TradeReplayModal'
 import { TradingAccount, checkPnlSyncStatus, updateArenaPnl } from '@/lib/api'
 
 // Types
@@ -72,6 +73,8 @@ interface TradeDetail {
   id: number
   symbol: string
   decision_time: string | null
+  entry_time: string | null
+  exit_time: string | null
   entry_type: string
   exit_type: string
   gross_pnl: number
@@ -155,6 +158,8 @@ export default function AttributionAnalysis() {
   const [tradesTotal, setTradesTotal] = useState(0)
   const [tradesLoading, setTradesLoading] = useState(false)
   const [tagFilter, setTagFilter] = useState<string | null>(null)
+  const [replayOpen, setReplayOpen] = useState(false)
+  const [replayTradeId, setReplayTradeId] = useState<number | null>(null)
 
   // Load accounts on mount
   useEffect(() => {
@@ -569,14 +574,24 @@ export default function AttributionAnalysis() {
                           <th className="text-right p-2 font-medium">Fees</th>
                           <th className="text-right p-2 font-medium">Net PnL</th>
                           <th className="text-left p-2 font-medium">Tags</th>
+                          <th className="text-center p-2 font-medium w-20"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {trades.map((trade) => (
                           <tr key={trade.id} className="border-b last:border-0 hover:bg-muted/50">
                             <td className="p-2 font-medium">{trade.symbol}</td>
-                            <td className="p-2 text-muted-foreground">
-                              {trade.decision_time ? new Date(trade.decision_time + 'Z').toLocaleString() : '-'}
+                            <td className="p-2 text-muted-foreground text-xs">
+                              <div className="flex flex-col gap-0.5">
+                                <span>
+                                  <span className="text-green-600 dark:text-green-400">In:</span>{' '}
+                                  {trade.entry_time ? new Date(trade.entry_time + 'Z').toLocaleString() : '-'}
+                                </span>
+                                <span>
+                                  <span className="text-red-600 dark:text-red-400">Out:</span>{' '}
+                                  {trade.exit_time ? new Date(trade.exit_time + 'Z').toLocaleString() : '-'}
+                                </span>
+                              </div>
                             </td>
                             <td className="p-2 text-center">
                               <span className={trade.entry_type === 'BUY' ? 'text-green-500' : trade.entry_type === 'SELL' ? 'text-red-500' : ''}>
@@ -616,6 +631,20 @@ export default function AttributionAnalysis() {
                                 ))}
                               </div>
                             </td>
+                            <td className="p-2 text-center">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1"
+                                onClick={() => {
+                                  setReplayTradeId(trade.id)
+                                  setReplayOpen(true)
+                                }}
+                              >
+                                <Play className="h-3 w-3" />
+                                {t('attribution.replay.button', 'Replay')}
+                              </Button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -634,6 +663,13 @@ export default function AttributionAnalysis() {
         onOpenChange={setAiChatOpen}
         accounts={accounts as unknown as TradingAccount[]}
         accountsLoading={false}
+      />
+
+      {/* Trade Replay Modal */}
+      <TradeReplayModal
+        open={replayOpen}
+        onOpenChange={setReplayOpen}
+        tradeId={replayTradeId}
       />
     </div>
   )

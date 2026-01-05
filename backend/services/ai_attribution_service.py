@@ -492,10 +492,27 @@ def _tool_get_trade_decision_chain(db: Session, args: Dict) -> str:
     for d in decisions:
         pnl = float(d.realized_pnl) if d.realized_pnl else 0
         fee = fee_map.get(d.id, 0.0)
+
+        # Parse prices from decision_snapshot
+        entry_price = None
+        tp_price = None
+        sl_price = None
+        if d.decision_snapshot:
+            try:
+                snapshot = json.loads(d.decision_snapshot) if isinstance(d.decision_snapshot, str) else d.decision_snapshot
+                entry_price = snapshot.get("max_price") or snapshot.get("entry_price")
+                tp_price = snapshot.get("take_profit_price") or snapshot.get("tp_price")
+                sl_price = snapshot.get("stop_loss_price") or snapshot.get("sl_price")
+            except:
+                pass
+
         trades.append({
             "id": d.id,
             "symbol": d.symbol,
             "operation": d.operation,
+            "entry_price": entry_price,
+            "tp_price": tp_price,
+            "sl_price": sl_price,
             "realized_pnl": pnl,
             "fee": round(fee, 2),
             "net_pnl": round(pnl - fee, 2),

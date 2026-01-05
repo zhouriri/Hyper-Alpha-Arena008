@@ -273,6 +273,84 @@ class HyperliquidClient:
             logger.error(f"Error fetching klines for {symbol}: {e}")
             return []
 
+    def get_historical_kline_data(self, symbol: str, period: str, since_ms: int, until_ms: int = None) -> List[Dict[str, Any]]:
+        """Get historical kline data for a specific time range (for trade replay)
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTC')
+            period: Time period (e.g., '5m', '15m', '1h')
+            since_ms: Start timestamp in milliseconds
+            until_ms: End timestamp in milliseconds (optional)
+
+        Returns:
+            List of kline data dictionaries
+        """
+        try:
+            if not self.exchange:
+                self._initialize_exchange()
+
+            formatted_symbol = self._format_symbol(symbol)
+
+            timeframe_map = {
+                '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+                '1h': '1h', '2h': '2h', '4h': '4h', '8h': '8h', '12h': '12h',
+                '1d': '1d', '3d': '3d', '1w': '1w', '1M': '1M',
+            }
+            timeframe = timeframe_map.get(period, '5m')
+
+            # Calculate limit based on time range
+            period_ms_map = {
+                '1m': 60000, '3m': 180000, '5m': 300000, '15m': 900000, '30m': 1800000,
+                '1h': 3600000, '2h': 7200000, '4h': 14400000, '8h': 28800000, '12h': 43200000,
+                '1d': 86400000, '3d': 259200000, '1w': 604800000, '1M': 2592000000,
+            }
+            period_ms = period_ms_map.get(period, 300000)
+
+            if until_ms:
+                time_range = until_ms - since_ms
+                limit = min(int(time_range / period_ms) + 10, 500)  # Add buffer, max 500
+            else:
+                limit = 500
+
+            # Fetch OHLCV data with since parameter
+            ohlcv = self.exchange.fetch_ohlcv(formatted_symbol, timeframe, since=since_ms, limit=limit)
+
+            # Convert to our format and filter by until_ms if provided
+            klines = []
+            for candle in ohlcv:
+                timestamp_ms = candle[0]
+                if until_ms and timestamp_ms > until_ms:
+                    break
+
+                open_price = candle[1]
+                high_price = candle[2]
+                low_price = candle[3]
+                close_price = candle[4]
+                volume = candle[5]
+
+                change = close_price - open_price if open_price else 0
+                percent = (change / open_price * 100) if open_price else 0
+
+                klines.append({
+                    'timestamp': int(timestamp_ms / 1000),
+                    'datetime': datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).isoformat(),
+                    'open': float(open_price) if open_price else None,
+                    'high': float(high_price) if high_price else None,
+                    'low': float(low_price) if low_price else None,
+                    'close': float(close_price) if close_price else None,
+                    'volume': float(volume) if volume else None,
+                    'amount': float(volume * close_price) if volume and close_price else None,
+                    'chg': float(change),
+                    'percent': float(percent),
+                })
+
+            logger.info(f"Got {len(klines)} historical klines for {formatted_symbol} from {since_ms}")
+            return klines
+
+        except Exception as e:
+            logger.error(f"Error fetching historical klines for {symbol}: {e}")
+            return []
+
     def _persist_kline_data(self, symbol: str, period: str, klines: List[Dict[str, Any]]):
         """Persist kline data to database
 
@@ -384,9 +462,14 @@ class HyperliquidClient:
         elif '/' in symbol:
             # If it's BTC/USDC, convert to BTC/USDC:USDC for Hyperliquid
             return f"{symbol}:USDC"
-        
+
+        # Handle -PERP suffix (e.g., 'BTC-PERP' -> 'BTC')
+        symbol_clean = symbol.upper()
+        if symbol_clean.endswith('-PERP'):
+            symbol_clean = symbol_clean[:-5]
+
         # For single symbols like 'BTC', check if it's a mainstream crypto
-        symbol_upper = symbol.upper()
+        symbol_upper = symbol_clean
         mainstream_cryptos = ['BTC', 'ETH', 'SOL', 'DOGE', 'BNB', 'XRP']
         
         if symbol_upper in mainstream_cryptos:
@@ -426,6 +509,12 @@ def get_kline_data_from_hyperliquid(symbol: str, period: str = '1d', count: int 
     """Get kline data from Hyperliquid"""
     client = get_hyperliquid_client_for_environment(environment)
     return client.get_kline_data(symbol, period, count, persist)
+
+
+def get_historical_kline_data_from_hyperliquid(symbol: str, period: str, since_ms: int, until_ms: int = None, environment: str = "mainnet") -> List[Dict[str, Any]]:
+    """Get historical kline data from Hyperliquid for a specific time range"""
+    client = get_hyperliquid_client_for_environment(environment)
+    return client.get_historical_kline_data(symbol, period, since_ms, until_ms)
 
 
 def get_market_status_from_hyperliquid(symbol: str, environment: str = "mainnet") -> Dict[str, Any]:

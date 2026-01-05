@@ -3,11 +3,11 @@ Strategy Analytics API routes.
 Provides multi-dimensional analysis of trading decisions and performance.
 """
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, case, and_, or_
 from sqlalchemy.orm import Session
@@ -674,6 +674,27 @@ def get_entry_type(decision: AIDecisionLog, db: Session) -> str:
     return '-'
 
 
+def get_entry_decision(decision: AIDecisionLog, db: Session) -> Optional[AIDecisionLog]:
+    """Get the entry decision for a trade.
+
+    For buy/sell operations, return the decision itself.
+    For close operations, find the corresponding opening trade.
+    """
+    if decision.operation in ('buy', 'sell'):
+        return decision
+
+    # For close operation, find the corresponding opening trade
+    if decision.operation == 'close' and decision.symbol and decision.wallet_address:
+        return db.query(AIDecisionLog).filter(
+            AIDecisionLog.symbol == decision.symbol,
+            AIDecisionLog.wallet_address == decision.wallet_address,
+            AIDecisionLog.operation.in_(['buy', 'sell']),
+            AIDecisionLog.decision_time < decision.decision_time
+        ).order_by(AIDecisionLog.decision_time.desc()).first()
+
+    return None
+
+
 def calculate_trade_tags(
     decisions: List[AIDecisionLog],
     account_equity: float,
@@ -798,12 +819,28 @@ def get_trade_details(
     for d in paginated:
         pnl = float(d.realized_pnl) if d.realized_pnl else 0
         fee = fee_map.get(d.id, 0.0)
+
+        # Get entry decision and time
+        entry_decision = get_entry_decision(d, db)
+        entry_time = None
+        if entry_decision and entry_decision.decision_time:
+            entry_time = entry_decision.decision_time.isoformat()
+
+        # Determine exit time: use pnl_updated_at for TP/SL triggers, otherwise decision_time
+        exit_type = get_exit_type(d)
+        if exit_type in ('TP', 'SL') and d.pnl_updated_at:
+            exit_time = d.pnl_updated_at.isoformat()
+        else:
+            exit_time = d.decision_time.isoformat() if d.decision_time else None
+
         trades.append({
             "id": d.id,
             "symbol": d.symbol,
             "decision_time": d.decision_time.isoformat() if d.decision_time else None,
-            "entry_type": get_entry_type(d, db),
-            "exit_type": get_exit_type(d),
+            "entry_time": entry_time,
+            "exit_time": exit_time,
+            "entry_type": entry_decision.operation.upper() if entry_decision else '-',
+            "exit_type": exit_type,
             "gross_pnl": round(pnl, 2),
             "fees": round(fee, 2),
             "net_pnl": round(pnl - fee, 2),
@@ -820,4 +857,373 @@ def get_trade_details(
         "offset": offset,
         "account_equity": round(account_equity, 2),
         "loss_threshold": round(account_equity * 0.05, 2) if account_equity > 0 else 50.0,
+    }
+
+
+@router.get("/trades/{trade_id}/replay")
+def get_trade_replay(
+    trade_id: int,
+    db: Session = Depends(get_db),
+):
+    """Get trade replay data including decision chain and trade details."""
+    # Get the main trade record
+    trade = db.query(AIDecisionLog).filter(AIDecisionLog.id == trade_id).first()
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+
+    # Determine if this is an entry or exit record
+    is_entry = trade.operation in ('buy', 'sell')
+    is_exit = trade.operation == 'close' or (trade.realized_pnl is not None and trade.realized_pnl != 0)
+
+    entry_decision = None
+    exit_decision = None
+    entry_time = None
+    exit_time = None
+
+    if is_entry and trade.realized_pnl:
+        # This is an entry with PnL (TP/SL triggered) - entry and exit are same record
+        entry_decision = trade
+        exit_decision = trade
+        entry_time = trade.decision_time
+        exit_time = trade.pnl_updated_at or trade.decision_time
+    elif is_entry:
+        # Entry without PnL - need to find exit
+        entry_decision = trade
+        entry_time = trade.decision_time
+        # Find corresponding close
+        exit_decision = db.query(AIDecisionLog).filter(
+            AIDecisionLog.symbol == trade.symbol,
+            AIDecisionLog.wallet_address == trade.wallet_address,
+            AIDecisionLog.operation == 'close',
+            AIDecisionLog.decision_time > trade.decision_time
+        ).order_by(AIDecisionLog.decision_time.asc()).first()
+        if exit_decision:
+            exit_time = exit_decision.decision_time
+    else:
+        # This is an exit (close) - find corresponding entry
+        exit_decision = trade
+        exit_time = trade.decision_time
+        entry_decision = db.query(AIDecisionLog).filter(
+            AIDecisionLog.symbol == trade.symbol,
+            AIDecisionLog.wallet_address == trade.wallet_address,
+            AIDecisionLog.operation.in_(['buy', 'sell']),
+            AIDecisionLog.decision_time < trade.decision_time
+        ).order_by(AIDecisionLog.decision_time.desc()).first()
+        if entry_decision:
+            entry_time = entry_decision.decision_time
+
+    # Build decision chain (all decisions between entry and exit)
+    decisions_chain = []
+    if entry_time and exit_time:
+        chain_query = db.query(AIDecisionLog).filter(
+            AIDecisionLog.symbol == trade.symbol,
+            AIDecisionLog.wallet_address == trade.wallet_address,
+            AIDecisionLog.decision_time >= entry_time,
+            AIDecisionLog.decision_time <= exit_time
+        ).order_by(AIDecisionLog.decision_time.asc()).all()
+
+        for d in chain_query:
+            decisions_chain.append({
+                "id": d.id,
+                "operation": d.operation,
+                "decision_time": d.decision_time.isoformat() if d.decision_time else None,
+                "reason": d.reason,
+                "target_portion": float(d.target_portion) if d.target_portion else 0,
+                "realized_pnl": float(d.realized_pnl) if d.realized_pnl else None,
+            })
+
+    # Calculate summary
+    entry_price = None
+    exit_price = None
+    hold_duration = None
+
+    if entry_time and exit_time:
+        hold_duration = str(exit_time - entry_time)
+
+    # Get PnL (fees are already deducted in realized_pnl from Hyperliquid)
+    pnl = float(trade.realized_pnl) if trade.realized_pnl else 0
+
+    return {
+        "trade": {
+            "id": trade.id,
+            "symbol": trade.symbol,
+            "operation": trade.operation,
+            "decision_time": trade.decision_time.isoformat() if trade.decision_time else None,
+            "wallet_address": trade.wallet_address,
+            "hyperliquid_environment": trade.hyperliquid_environment,
+            "account_id": trade.account_id,
+        },
+        "entry_decision": {
+            "id": entry_decision.id,
+            "operation": entry_decision.operation,
+            "decision_time": entry_decision.decision_time.isoformat() if entry_decision.decision_time else None,
+            "reason": entry_decision.reason,
+        } if entry_decision else None,
+        "exit_decision": {
+            "id": exit_decision.id,
+            "operation": exit_decision.operation,
+            "decision_time": exit_decision.decision_time.isoformat() if exit_decision.decision_time else None,
+            "reason": exit_decision.reason,
+            "exit_type": get_exit_type(exit_decision),
+        } if exit_decision else None,
+        "decisions_chain": decisions_chain,
+        "summary": {
+            "entry_time": entry_time.isoformat() if entry_time else None,
+            "exit_time": exit_time.isoformat() if exit_time else None,
+            "hold_duration": hold_duration,
+            "pnl": round(pnl, 2),
+        },
+        "kline_params": {
+            "symbol": trade.symbol,
+            "start_time": (entry_time - timedelta(hours=1)).isoformat() if entry_time else None,
+            "end_time": (exit_time + timedelta(hours=1)).isoformat() if exit_time else None,
+        } if entry_time and exit_time else None,
+    }
+
+
+# ============== Trade Replay K-line API ==============
+
+def _parse_decision_prices(decision: AIDecisionLog) -> dict:
+    """Extract price info from decision_snapshot JSON"""
+    prices = {"entry_price": None, "tp_price": None, "sl_price": None, "exit_price": None}
+    if not decision.decision_snapshot:
+        return prices
+    try:
+        import json
+        snapshot = json.loads(decision.decision_snapshot) if isinstance(decision.decision_snapshot, str) else decision.decision_snapshot
+        operation = snapshot.get("operation", decision.operation)
+
+        # For BUY: max_price is entry limit (buy no higher than this)
+        # For SELL: min_price is entry limit (sell no lower than this)
+        if operation == "buy":
+            prices["entry_price"] = snapshot.get("max_price") or snapshot.get("entry_price")
+        elif operation == "sell":
+            prices["entry_price"] = snapshot.get("min_price") or snapshot.get("entry_price")
+        else:
+            prices["entry_price"] = snapshot.get("max_price") or snapshot.get("min_price") or snapshot.get("entry_price")
+
+        prices["tp_price"] = snapshot.get("take_profit_price") or snapshot.get("tp_price")
+        prices["sl_price"] = snapshot.get("stop_loss_price") or snapshot.get("sl_price")
+        # For exit/close: min_price is the exit price limit
+        prices["exit_price"] = snapshot.get("min_price") if operation == "close" else None
+    except:
+        pass
+    return prices
+
+@router.get("/trades/{trade_id}/kline")
+def get_trade_replay_kline(
+    trade_id: int,
+    period: str = Query("5m", description="K-line period: 5m, 15m, 1h, 4h"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get K-line data for trade replay with entry/exit markers.
+    Returns historical K-line data centered around the trade's entry and exit times.
+    """
+    from services.hyperliquid_market_data import get_historical_kline_data_from_hyperliquid
+
+    # Validate period
+    valid_periods = ['5m', '15m', '1h', '4h']
+    if period not in valid_periods:
+        raise HTTPException(status_code=400, detail=f"Invalid period. Valid: {valid_periods}")
+
+    # Get the main trade record (same logic as get_trade_replay)
+    trade = db.query(AIDecisionLog).filter(AIDecisionLog.id == trade_id).first()
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+
+    # Determine entry and exit decisions (same logic as get_trade_replay)
+    is_entry = trade.operation in ('buy', 'sell')
+
+    entry_decision = None
+    exit_decision = None
+    entry_time = None
+    exit_time = None
+
+    if is_entry and trade.realized_pnl:
+        entry_decision = trade
+        exit_decision = trade
+        entry_time = trade.decision_time
+        exit_time = trade.pnl_updated_at or trade.decision_time
+    elif is_entry:
+        entry_decision = trade
+        entry_time = trade.decision_time
+        exit_decision = db.query(AIDecisionLog).filter(
+            AIDecisionLog.symbol == trade.symbol,
+            AIDecisionLog.wallet_address == trade.wallet_address,
+            AIDecisionLog.operation == 'close',
+            AIDecisionLog.decision_time > trade.decision_time
+        ).order_by(AIDecisionLog.decision_time.asc()).first()
+        if exit_decision:
+            exit_time = exit_decision.decision_time
+    else:
+        exit_decision = trade
+        exit_time = trade.decision_time
+        entry_decision = db.query(AIDecisionLog).filter(
+            AIDecisionLog.symbol == trade.symbol,
+            AIDecisionLog.wallet_address == trade.wallet_address,
+            AIDecisionLog.operation.in_(['buy', 'sell']),
+            AIDecisionLog.decision_time < trade.decision_time
+        ).order_by(AIDecisionLog.decision_time.desc()).first()
+        if entry_decision:
+            entry_time = entry_decision.decision_time
+
+    if not entry_time:
+        raise HTTPException(status_code=400, detail="Trade has no entry time")
+
+    # Calculate buffer based on period
+    period_buffer = {'5m': 30, '15m': 60, '1h': 120, '4h': 480}
+    buffer_minutes = period_buffer.get(period, 30)
+
+    # Calculate time range
+    start_time = entry_time - timedelta(minutes=buffer_minutes)
+    if exit_time:
+        end_time = exit_time + timedelta(minutes=buffer_minutes)
+    else:
+        end_time = entry_time + timedelta(hours=4)
+
+    # Convert to milliseconds
+    since_ms = int(start_time.timestamp() * 1000)
+    until_ms = int(end_time.timestamp() * 1000)
+
+    # Fetch K-line data from Hyperliquid API first
+    environment = trade.hyperliquid_environment or "mainnet"
+    klines = get_historical_kline_data_from_hyperliquid(
+        symbol=trade.symbol,
+        period=period,
+        since_ms=since_ms,
+        until_ms=until_ms,
+        environment=environment
+    )
+
+    # Fallback to local database if API returns empty
+    if not klines:
+        from database.models import CryptoKline
+
+        # Clean symbol (remove -PERP suffix)
+        symbol_clean = trade.symbol.upper()
+        if symbol_clean.endswith('-PERP'):
+            symbol_clean = symbol_clean[:-5]
+
+        # Query local klines
+        local_klines = db.query(CryptoKline).filter(
+            CryptoKline.symbol == symbol_clean,
+            CryptoKline.period == period,
+            CryptoKline.timestamp >= int(since_ms / 1000),
+            CryptoKline.timestamp <= int(until_ms / 1000),
+            CryptoKline.environment == environment
+        ).order_by(CryptoKline.timestamp).all()
+
+        if local_klines:
+            # Convert to API format
+            klines = []
+            for k in local_klines:
+                open_p = float(k.open_price) if k.open_price else None
+                close_p = float(k.close_price) if k.close_price else None
+                chg = (close_p - open_p) if open_p and close_p else 0
+                pct = (chg / open_p * 100) if open_p else 0
+                klines.append({
+                    'timestamp': k.timestamp,
+                    'datetime': k.datetime_str,
+                    'open': open_p,
+                    'high': float(k.high_price) if k.high_price else None,
+                    'low': float(k.low_price) if k.low_price else None,
+                    'close': close_p,
+                    'volume': float(k.volume) if k.volume else None,
+                    'amount': float(k.amount) if k.amount else None,
+                    'chg': chg,
+                    'percent': pct,
+                })
+            logger.info(f"Using {len(klines)} local klines for {symbol_clean} {period}")
+
+    if not klines:
+        raise HTTPException(status_code=404, detail="Historical K-line data not available (exchange only keeps recent data)")
+
+    # Build markers with full decision info including prices
+    markers = []
+
+    if entry_decision:
+        entry_prices = _parse_decision_prices(entry_decision)
+        markers.append({
+            "type": "entry",
+            "time": entry_decision.decision_time.isoformat() if entry_decision.decision_time else None,
+            "timestamp": int(entry_decision.decision_time.timestamp()) if entry_decision.decision_time else None,
+            "operation": entry_decision.operation,
+            "reason": entry_decision.reason,
+            "target_portion": float(entry_decision.target_portion) if entry_decision.target_portion else None,
+            "symbol": trade.symbol,
+            "entry_price": entry_prices["entry_price"],
+            "tp_price": entry_prices["tp_price"],
+            "sl_price": entry_prices["sl_price"],
+        })
+
+    if exit_decision and exit_decision.id != entry_decision.id:
+        exit_prices = _parse_decision_prices(exit_decision)
+        markers.append({
+            "type": "exit",
+            "time": exit_decision.decision_time.isoformat() if exit_decision.decision_time else None,
+            "timestamp": int(exit_decision.decision_time.timestamp()) if exit_decision.decision_time else None,
+            "operation": exit_decision.operation,
+            "reason": exit_decision.reason,
+            "exit_type": get_exit_type(exit_decision),
+            "realized_pnl": float(trade.realized_pnl) if trade.realized_pnl else None,
+            "symbol": trade.symbol,
+            "exit_price": exit_prices["exit_price"] or exit_prices["entry_price"],  # min_price for close, max_price fallback
+        })
+    elif exit_decision and exit_decision.id == entry_decision.id and trade.realized_pnl:
+        # TP/SL triggered - add exit marker at pnl_updated_at time
+        entry_prices = _parse_decision_prices(entry_decision)
+        markers.append({
+            "type": "exit",
+            "time": (trade.pnl_updated_at or trade.decision_time).isoformat(),
+            "timestamp": int((trade.pnl_updated_at or trade.decision_time).timestamp()),
+            "operation": "close",
+            "reason": "TP/SL triggered",
+            "exit_type": get_exit_type(trade),
+            "realized_pnl": float(trade.realized_pnl),
+            "symbol": trade.symbol,
+            "exit_price": entry_prices["tp_price"] if float(trade.realized_pnl) > 0 else entry_prices["sl_price"],
+        })
+
+    # Add HOLD decision markers
+    if entry_time and exit_time:
+        hold_decisions = db.query(AIDecisionLog).filter(
+            AIDecisionLog.symbol == trade.symbol,
+            AIDecisionLog.wallet_address == trade.wallet_address,
+            AIDecisionLog.operation == 'hold',
+            AIDecisionLog.decision_time > entry_time,
+            AIDecisionLog.decision_time < exit_time
+        ).order_by(AIDecisionLog.decision_time.asc()).all()
+
+        for hold in hold_decisions:
+            markers.append({
+                "type": "hold",
+                "time": hold.decision_time.isoformat() if hold.decision_time else None,
+                "timestamp": int(hold.decision_time.timestamp()) if hold.decision_time else None,
+                "operation": "hold",
+                "reason": hold.reason,
+                "symbol": trade.symbol,
+            })
+
+    # Calculate default period based on hold duration
+    default_period = "5m"
+    if entry_time and exit_time:
+        hold_minutes = (exit_time - entry_time).total_seconds() / 60
+        if hold_minutes > 1440:
+            default_period = "4h"
+        elif hold_minutes > 240:
+            default_period = "1h"
+        elif hold_minutes > 60:
+            default_period = "15m"
+
+    return {
+        "symbol": trade.symbol,
+        "period": period,
+        "default_period": default_period,
+        "klines": klines,
+        "markers": markers,
+        "time_range": {
+            "start": start_time.isoformat(),
+            "end": end_time.isoformat(),
+        }
     }

@@ -1083,7 +1083,7 @@ def update_pnl_data(db: Session = Depends(get_db)):
         # Process fills for each environment
         for environment, fills in all_fills_by_env.items():
             env_result = _process_fills_for_environment(
-                db, snapshot_db, environment, fills
+                db, snapshot_db, environment, fills, wallet_configs
             )
             result["environments"][environment] = env_result
 
@@ -1108,6 +1108,7 @@ def _process_fills_for_environment(
     snapshot_db: Session,
     environment: str,
     fills: List[dict],
+    wallet_configs: dict,
 ) -> dict:
     """
     Process fills for a specific environment and update database records.
@@ -1174,6 +1175,19 @@ def _process_fills_for_environment(
 
     # Collect existing trade order_ids for deduplication
     existing_trade_order_ids = {str(t.order_id) for t in trades if t.order_id}
+
+    # Helper function to get order trigger time from Hyperliquid API
+    def get_order_trigger_time(account_id: int, order_id: str) -> Optional[datetime]:
+        """Get actual trigger time for TP/SL order from Hyperliquid API."""
+        key = (account_id, environment)
+        if key not in wallet_configs:
+            return None
+        try:
+            client = get_hyperliquid_client(db, account_id, override_environment=environment)
+            return client.get_order_trigger_time(db, int(order_id))
+        except Exception as e:
+            logger.warning(f"Failed to get trigger time for order {order_id}: {e}")
+            return None
 
     # Update AIDecisionLog records
     # Match by hyperliquid_order_id, tp_order_id, sl_order_id and accumulate PnL
@@ -1278,7 +1292,18 @@ def _process_fills_for_environment(
         # If matched any order, mark as synced (even if PnL is 0 for opening trades)
         if matched_order_ids:
             decision.realized_pnl = total_pnl
-            decision.pnl_updated_at = datetime.utcnow()
+
+            # Try to get actual trigger time for TP/SL orders
+            trigger_time = None
+            for oid in [decision.tp_order_id, decision.sl_order_id]:
+                if oid and str(oid) in matched_order_ids:
+                    trigger_time = get_order_trigger_time(decision.account_id, str(oid))
+                    if trigger_time:
+                        logger.info(f"Got trigger time {trigger_time} for order {oid}")
+                        break
+
+            # Use actual trigger time if available, otherwise use current time
+            decision.pnl_updated_at = trigger_time if trigger_time else datetime.utcnow()
             updated = True
 
         # Fallback: match by time window using HyperliquidTrade (only if no direct match)
@@ -1299,7 +1324,8 @@ def _process_fills_for_environment(
                 if order_id in order_aggregates:
                     agg = order_aggregates[order_id]
                     decision.realized_pnl = agg["total_pnl"]
-                    decision.pnl_updated_at = datetime.utcnow()
+                    # Use trade time as pnl_updated_at for better accuracy
+                    decision.pnl_updated_at = matching_trade.trade_time or datetime.utcnow()
                     updated = True
 
                     # Also update hyperliquid_order_id for future direct matching
@@ -1308,5 +1334,33 @@ def _process_fills_for_environment(
 
         if updated:
             result["decisions_updated"] += 1
+
+    # Fix historical data: update pnl_updated_at for records with TP/SL orders
+    # that may have been set to button click time instead of actual trigger time
+    result["historical_fixed"] = 0
+    for decision in decisions:
+        # Skip if no TP/SL order or already processed in this run
+        if not decision.tp_order_id and not decision.sl_order_id:
+            continue
+        if not decision.pnl_updated_at:
+            continue
+
+        # Check if pnl_updated_at might be inaccurate (set to button click time)
+        # We'll try to get the actual trigger time and update if different
+        for oid in [decision.tp_order_id, decision.sl_order_id]:
+            if not oid:
+                continue
+            trigger_time = get_order_trigger_time(decision.account_id, str(oid))
+            if trigger_time and trigger_time != decision.pnl_updated_at:
+                # Only update if the difference is significant (> 1 minute)
+                time_diff = abs((trigger_time - decision.pnl_updated_at).total_seconds())
+                if time_diff > 60:
+                    logger.info(
+                        f"Fixing historical pnl_updated_at for decision {decision.id}: "
+                        f"{decision.pnl_updated_at} -> {trigger_time}"
+                    )
+                    decision.pnl_updated_at = trigger_time
+                    result["historical_fixed"] += 1
+                    break
 
     return result
