@@ -30,8 +30,10 @@ import { getModelLogo } from './logoAssets'
 import FlipNumber from './FlipNumber'
 import HighlightWrapper from './HighlightWrapper'
 import { formatDateTime } from '@/lib/dateTime'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Settings } from 'lucide-react'
 import { copyToClipboard } from '@/lib/utils'
+import { Switch } from '@/components/ui/switch'
+import { TradingAccount, updateDashboardVisibility } from '@/lib/api'
 
 interface AlphaArenaFeedProps {
   refreshKey?: number
@@ -41,6 +43,7 @@ interface AlphaArenaFeedProps {
   onSelectedAccountChange?: (accountId: number | 'all') => void
   walletAddress?: string
   onPageChange?: (page: string) => void
+  onSelectedSymbolChange?: (symbol: string | null) => void
 }
 
 type FeedTab = 'trades' | 'model-chat' | 'positions'
@@ -75,6 +78,7 @@ export default function AlphaArenaFeed({
   onSelectedAccountChange,
   walletAddress,
   onPageChange,
+  onSelectedSymbolChange,
 }: AlphaArenaFeedProps) {
   const { t } = useTranslation()
   const { getData, updateData } = useArenaData()
@@ -113,6 +117,13 @@ export default function AlphaArenaFeed({
   // New states for symbol selection
   const [symbolOptions, setSymbolOptions] = useState<string[]>([])
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
+
+  // Dashboard visibility config dialog
+  const [showVisibilityConfig, setShowVisibilityConfig] = useState(false)
+  const [visibilityAccounts, setVisibilityAccounts] = useState<TradingAccount[]>([])
+  const [visibilityChanges, setVisibilityChanges] = useState<Map<number, boolean>>(new Map())
+  const [savingVisibility, setSavingVisibility] = useState(false)
+  const [loadingVisibilityAccounts, setLoadingVisibilityAccounts] = useState(false)
 
   // Track seen items for highlight animation
   const seenTradeIds = useRef<Set<number>>(new Set())
@@ -586,6 +597,66 @@ export default function AlphaArenaFeed({
     setManualRefreshKey((key) => key + 1)
   }
 
+  const handleSymbolFilterChange = (symbol: string | null) => {
+    setSelectedSymbol(symbol)
+    onSelectedSymbolChange?.(symbol)
+  }
+
+  // Dashboard visibility config handlers
+  const handleOpenVisibilityConfig = async () => {
+    // Open dialog first with loading state
+    setShowVisibilityConfig(true)
+    setLoadingVisibilityAccounts(true)
+    setVisibilityAccounts([])
+    setVisibilityChanges(new Map())
+    try {
+      const accounts = await getAccounts({ include_hidden: true })
+      setVisibilityAccounts(accounts)
+    } catch (err) {
+      console.error('Failed to load accounts:', err)
+    } finally {
+      setLoadingVisibilityAccounts(false)
+    }
+  }
+
+  const handleVisibilityToggle = (accountId: number, show: boolean) => {
+    setVisibilityChanges(prev => {
+      const next = new Map(prev)
+      next.set(accountId, show)
+      return next
+    })
+  }
+
+  const handleSaveVisibility = async () => {
+    if (visibilityChanges.size === 0) {
+      setShowVisibilityConfig(false)
+      return
+    }
+
+    setSavingVisibility(true)
+    try {
+      const updates = Array.from(visibilityChanges.entries()).map(([account_id, show_on_dashboard]) => ({
+        account_id,
+        show_on_dashboard
+      }))
+      await updateDashboardVisibility(updates)
+      setShowVisibilityConfig(false)
+      // Trigger refresh to update chart data
+      setManualRefreshKey(key => key + 1)
+    } catch (err) {
+      console.error('Failed to save visibility settings:', err)
+    } finally {
+      setSavingVisibility(false)
+    }
+  }
+
+  const getAccountVisibility = (account: TradingAccount): boolean => {
+    if (visibilityChanges.has(account.id)) {
+      return visibilityChanges.get(account.id)!
+    }
+    return account.show_on_dashboard !== false
+  }
+
   const handleAccountFilterChange = (value: number | 'all') => {
     if (selectedAccountProp === undefined) {
       setInternalSelectedAccount(value)
@@ -728,7 +799,7 @@ export default function AlphaArenaFeed({
           </select>
           <select
             value={selectedSymbol || ''}
-            onChange={(e) => setSelectedSymbol(e.target.value || null)}
+            onChange={(e) => handleSymbolFilterChange(e.target.value || null)}
             className="h-8 rounded border border-border bg-muted px-2 text-xs uppercase tracking-wide text-foreground"
             disabled={symbolOptions.length === 0}
           >
@@ -744,8 +815,58 @@ export default function AlphaArenaFeed({
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleRefreshClick} disabled={loadingTrades || loadingModelChat || loadingPositions}>
             {t('common.refresh', 'Refresh')}
           </Button>
+          <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={handleOpenVisibilityConfig} title={t('feed.configureVisibility', 'Configure Dashboard Visibility')}>
+            <Settings className="h-4 w-4" />
+          </Button>
         </div>
       </div>
+
+      {/* Dashboard Visibility Config Dialog */}
+      <Dialog open={showVisibilityConfig} onOpenChange={setShowVisibilityConfig}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('feed.dashboardVisibility', 'Dashboard Visibility')}</DialogTitle>
+            <DialogDescription>
+              {t('feed.dashboardVisibilityDesc', 'Choose which AI Traders to show on the Dashboard.')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 max-h-[300px] overflow-y-auto py-2">
+            {loadingVisibilityAccounts ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : visibilityAccounts.length === 0 ? (
+              <div className="text-center text-muted-foreground py-4">
+                {t('feed.noAccountsFound', 'No AI Traders found')}
+              </div>
+            ) : (
+              visibilityAccounts.map(account => (
+                <div key={account.id} className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{account.name}</span>
+                    {account.model && (
+                      <span className="text-xs text-muted-foreground">({account.model})</span>
+                    )}
+                  </div>
+                  <Switch
+                    checked={getAccountVisibility(account)}
+                    onCheckedChange={(checked) => handleVisibilityToggle(account.id, checked)}
+                  />
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVisibilityConfig(false)}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button onClick={handleSaveVisibility} disabled={savingVisibility}>
+              {savingVisibility ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {t('common.save', 'Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Tabs
         value={activeTab}

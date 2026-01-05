@@ -40,6 +40,7 @@ MIGRATIONS = [
     "add_decision_tracking_fields.py",
     "add_ai_attribution_chat.py",
     "add_scheduled_trigger_enabled.py",
+    "add_show_on_dashboard.py",
 ]
 
 

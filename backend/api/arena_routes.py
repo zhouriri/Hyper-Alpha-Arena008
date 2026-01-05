@@ -79,10 +79,11 @@ def _get_hyperliquid_positions(db: Session, account_id: Optional[int], environme
     """
     from database.models import HyperliquidWallet
 
-    # Get all AI accounts or specific account
+    # Get all AI accounts or specific account (filter hidden accounts for Dashboard)
     accounts_query = db.query(Account).filter(
         Account.account_type == "AI",
-        Account.is_active == "true"
+        Account.is_active == "true",
+        Account.show_on_dashboard == True
     )
 
     if account_id:
@@ -825,6 +826,7 @@ def get_positions_snapshot(
     accounts_query = db.query(Account).filter(
         Account.account_type == "AI",
         Account.is_active == "true",
+        Account.show_on_dashboard == True,
     )
 
     if account_id:

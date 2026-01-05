@@ -80,14 +80,22 @@ def _serialize_strategy(account: Account, strategy, db: Session = None) -> Strat
 
 
 @router.get("/list")
-async def list_all_accounts(db: Session = Depends(get_db)):
-    """Get all active accounts (for paper trading demo)"""
+async def list_all_accounts(include_hidden: bool = False, db: Session = Depends(get_db)):
+    """Get all active accounts (for paper trading demo)
+
+    Args:
+        include_hidden: If True, include accounts with show_on_dashboard=False.
+                       Default False (only show visible accounts for Dashboard).
+    """
     try:
         from database.models import User
         from eth_account import Account as EthAccount
         from services.hyperliquid_environment import decrypt_private_key
 
-        accounts = db.query(Account).filter(Account.is_active == "true").all()
+        query = db.query(Account).filter(Account.is_active == "true")
+        if not include_hidden:
+            query = query.filter(Account.show_on_dashboard == True)
+        accounts = query.all()
 
         result = []
         for account in accounts:
@@ -181,7 +189,8 @@ async def list_all_accounts(db: Session = Depends(get_db)):
                 "is_active": account.is_active == "true",
                 "auto_trading_enabled": account.auto_trading_enabled == "true",
                 "wallet_address": wallet_address,
-                "has_mainnet_wallet": has_mainnet_wallet
+                "has_mainnet_wallet": has_mainnet_wallet,
+                "show_on_dashboard": account.show_on_dashboard
             })
 
         return result
@@ -1490,4 +1499,46 @@ async def disable_trading(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to disable trading: {str(e)}"
+        )
+
+
+@router.patch("/dashboard-visibility")
+async def update_dashboard_visibility(
+    visibility_updates: List[dict],
+    db: Session = Depends(get_db)
+):
+    """
+    Batch update show_on_dashboard for multiple accounts.
+
+    Request body: [{"account_id": 1, "show_on_dashboard": true}, ...]
+
+    Returns:
+        {"success": bool, "updated_count": int, "updates": [...]}
+    """
+    try:
+        updated = []
+        for item in visibility_updates:
+            account_id = item.get("account_id")
+            show = item.get("show_on_dashboard", True)
+
+            account = db.query(Account).filter(Account.id == account_id).first()
+            if account:
+                account.show_on_dashboard = show
+                updated.append({"account_id": account_id, "show_on_dashboard": show})
+
+        db.commit()
+
+        logger.info(f"Updated dashboard visibility for {len(updated)} accounts")
+        return {
+            "success": True,
+            "updated_count": len(updated),
+            "updates": updated
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update dashboard visibility: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update dashboard visibility: {str(e)}"
         )

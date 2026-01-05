@@ -144,8 +144,11 @@ def get_all_asset_curves_data_new(
         ):
             return cache_entry["data"]  # type: ignore[return-value]
 
-    # Get all active accounts for paper mode
-    accounts = db.query(Account).filter(Account.is_active == "true").all()
+    # Get all active accounts for paper mode (filtered by show_on_dashboard)
+    accounts = db.query(Account).filter(
+        Account.is_active == "true",
+        Account.show_on_dashboard == True,
+    ).all()
     account_map = {account.id: account for account in accounts}
     rows = _get_bucketed_snapshots(db, bucket_minutes)
 
@@ -224,6 +227,7 @@ def _build_hyperliquid_asset_curve(
         account_query = db.query(Account).filter(
             Account.is_active == "true",
             Account.account_type == "AI",
+            Account.show_on_dashboard == True,
         )
 
         # Filter by specific account if provided

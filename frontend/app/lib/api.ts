@@ -159,6 +159,7 @@ export interface TradingAccount {
   auto_trading_enabled?: boolean
   wallet_address?: string | null  // Hyperliquid mainnet wallet address
   has_mainnet_wallet?: boolean  // Whether account has mainnet wallet configured
+  show_on_dashboard?: boolean  // Whether to show on Dashboard views
 }
 
 export interface TradingAccountCreate {
@@ -424,8 +425,29 @@ export async function deleteTradingAccount(accountId: number, sessionToken: stri
 
 // Account functions for paper trading with hardcoded user
 // Note: Backend initializes default user on startup, frontend just queries the endpoints
-export async function getAccounts(): Promise<TradingAccount[]> {
-  const response = await apiRequest('/account/list')
+export async function getAccounts(options?: { include_hidden?: boolean }): Promise<TradingAccount[]> {
+  const params = new URLSearchParams()
+  if (options?.include_hidden) {
+    params.set('include_hidden', 'true')
+  }
+  const queryString = params.toString()
+  const url = queryString ? `/account/list?${queryString}` : '/account/list'
+  const response = await apiRequest(url)
+  return response.json()
+}
+
+export interface DashboardVisibilityUpdate {
+  account_id: number
+  show_on_dashboard: boolean
+}
+
+export async function updateDashboardVisibility(
+  updates: DashboardVisibilityUpdate[]
+): Promise<{ success: boolean; updated_count: number; updates: DashboardVisibilityUpdate[] }> {
+  const response = await apiRequest('/account/dashboard-visibility', {
+    method: 'PATCH',
+    body: JSON.stringify(updates)
+  })
   return response.json()
 }
 

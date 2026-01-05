@@ -58,6 +58,7 @@ interface HyperliquidAssetChartProps {
   environment?: HyperliquidEnvironment
   selectedAccount?: number | 'all'
   trades?: TradeMarker[]
+  selectedSymbol?: string | null
 }
 
 export default function HyperliquidAssetChart({
@@ -66,6 +67,7 @@ export default function HyperliquidAssetChart({
   environment,
   selectedAccount,
   trades,
+  selectedSymbol,
 }: HyperliquidAssetChartProps) {
   const [data, setData] = useState<HyperliquidAssetData[]>([])
   const [loading, setLoading] = useState(true)
@@ -226,6 +228,8 @@ export default function HyperliquidAssetChart({
       if (!trade.trade_time) return
       // Filter by selected account
       if (selectedAccount && selectedAccount !== 'all' && trade.account_id !== selectedAccount) return
+      // Filter by selected symbol
+      if (selectedSymbol && trade.symbol !== selectedSymbol) return
 
       // Convert trade_time ISO string to Unix timestamp
       const tradeTs = Math.floor(new Date(trade.trade_time + (trade.trade_time.includes('Z') ? '' : 'Z')).getTime() / 1000)
@@ -256,7 +260,7 @@ export default function HyperliquidAssetChart({
     })
 
     return markers
-  }, [trades, chartData, selectedAccount])
+  }, [trades, chartData, selectedAccount, selectedSymbol])
 
   // Trade marker colors matching Modelchat
   const getTradeMarkerStyle = (side: string) => {

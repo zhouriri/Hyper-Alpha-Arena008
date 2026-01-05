@@ -62,6 +62,9 @@ class Account(Base):
     max_leverage = Column(Integer, nullable=True, default=3)  # Maximum allowed leverage
     default_leverage = Column(Integer, nullable=True, default=1)  # Default leverage for orders
 
+    # Dashboard visibility
+    show_on_dashboard = Column(Boolean, nullable=False, default=True)  # Show/hide on Dashboard views
+
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(
         TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
