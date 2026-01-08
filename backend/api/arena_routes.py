@@ -29,6 +29,7 @@ from services.asset_calculator import calc_positions_value
 from services.price_cache import get_cached_price, cache_price
 from services.market_data import get_last_price
 from services.hyperliquid_trading_client import HyperliquidTradingClient, get_cached_trading_client
+from services.hyperliquid_environment import get_hyperliquid_client
 from services.hyperliquid_cache import (
     get_cached_account_state,
     get_cached_positions,
