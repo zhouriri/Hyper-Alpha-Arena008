@@ -18,7 +18,8 @@ from database.connection import SessionLocal
 from database.snapshot_connection import SnapshotSessionLocal
 from database.models import (
     Account, AIDecisionLog,
-    AccountPromptBinding, AccountStrategyConfig
+    AccountPromptBinding, AccountStrategyConfig,
+    SignalTriggerLog
 )
 from database.snapshot_models import HyperliquidTrade
 
@@ -356,6 +357,26 @@ async def execute_import(
     ).first()
     target_prompt_template_id = prompt_binding.prompt_template_id if prompt_binding else None
 
+    # Get target trader's bound signal pool and find a trigger record for association
+    target_signal_trigger_id = None
+    strategy_config = db.query(AccountStrategyConfig).filter(
+        AccountStrategyConfig.account_id == account_id
+    ).first()
+    if strategy_config and strategy_config.signal_pool_ids:
+        # Parse signal_pool_ids (stored as JSON string like '[10]')
+        try:
+            pool_ids = json.loads(strategy_config.signal_pool_ids)
+            if pool_ids and len(pool_ids) > 0:
+                first_pool_id = pool_ids[0]
+                # Find any trigger record from this pool
+                trigger_record = db.query(SignalTriggerLog).filter(
+                    SignalTriggerLog.pool_id == first_pool_id
+                ).first()
+                if trigger_record:
+                    target_signal_trigger_id = trigger_record.id
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     # Note: wallet_address will be taken from source trade data during import
     # Each trade record contains its original wallet_address
 
@@ -391,7 +412,10 @@ async def execute_import(
 
             # Import decision log
             try:
-                new_log = _import_decision_log(db, account_id, log_data, target_prompt_template_id)
+                new_log = _import_decision_log(
+                    db, account_id, log_data,
+                    target_prompt_template_id, target_signal_trigger_id
+                )
                 imported_logs += 1
 
                 # Import related trades
@@ -440,7 +464,8 @@ def _import_decision_log(
     db: Session,
     account_id: int,
     log_data: dict,
-    target_prompt_template_id: Optional[int] = None
+    target_prompt_template_id: Optional[int] = None,
+    target_signal_trigger_id: Optional[int] = None
 ) -> AIDecisionLog:
     """Import a single decision log into the main database.
 
@@ -448,17 +473,14 @@ def _import_decision_log(
         db: Database session
         account_id: Target account ID
         log_data: Decision log data from export
-        target_prompt_template_id: Target trader's bound prompt template ID for association
+        target_prompt_template_id: Target trader's bound prompt template ID
+        target_signal_trigger_id: Target trader's signal pool trigger ID
     """
     # Parse datetime fields
     decision_time = parse(log_data["decision_time"])
     pnl_updated_at = parse(log_data["pnl_updated_at"]) if log_data.get("pnl_updated_at") else None
 
-    # Determine prompt_template_id: use source if available, otherwise use target's binding
-    prompt_template_id = log_data.get("prompt_template_id")
-    if prompt_template_id is None and target_prompt_template_id is not None:
-        prompt_template_id = target_prompt_template_id
-
+    # Always use target trader's bindings (ignore source data values)
     new_log = AIDecisionLog(
         account_id=account_id,
         symbol=log_data.get("symbol"),
@@ -479,9 +501,9 @@ def _import_decision_log(
         sl_order_id=log_data.get("sl_order_id"),
         realized_pnl=log_data.get("realized_pnl"),
         pnl_updated_at=pnl_updated_at,
-        # Trigger and prompt association
-        signal_trigger_id=log_data.get("signal_trigger_id"),
-        prompt_template_id=prompt_template_id,
+        # Use target trader's bindings for association
+        signal_trigger_id=target_signal_trigger_id,
+        prompt_template_id=target_prompt_template_id,
     )
     db.add(new_log)
     db.flush()
