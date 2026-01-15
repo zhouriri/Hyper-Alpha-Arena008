@@ -2413,14 +2413,23 @@ def _format_flow_indicator(indicator_name: str, indicator_data: Any) -> str:
             return "\n".join(result)
 
         elif indicator_name == "FUNDING":
+            # Values are in K-line display unit (raw × 1000000)
+            # current_pct is the actual percentage
             current = indicator_data.get("current", 0)
+            current_pct = indicator_data.get("current_pct", current / 10000)
+            change = indicator_data.get("change", 0)
+            change_pct = indicator_data.get("change_pct", change / 10000)
             last_5 = indicator_data.get("last_5", [])
             annualized = indicator_data.get("annualized", 0)
 
+            # Format change with sign
+            change_sign = "+" if change >= 0 else ""
+
             result = [
-                f"Funding Rate: {current:.4f}%",
+                f"Funding Rate: {current:.1f} ({current_pct:.4f}%)",
+                f"Funding Change: {change_sign}{change:.1f} ({change_sign}{change_pct:.4f}%)",
                 f"Annualized: {annualized:.2f}%",
-                f"Funding last 5: {', '.join(f'{f:.4f}%' for f in last_5)}"
+                f"Funding last 5: {', '.join(f'{f:.1f}' for f in last_5)}"
             ]
             return "\n".join(result)
 

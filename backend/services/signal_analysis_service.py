@@ -78,10 +78,48 @@ class SignalAnalysisService:
                 }
 
             # Determine precision based on metric type
-            # funding needs higher precision (values like 0.00125%)
-            precision = 6 if metric == "funding" else 4
+            precision = 2 if metric == "funding" else 4
 
-            # Calculate statistics
+            # For funding metric, filter out near-zero values for threshold calculation
+            # Funding rate changes are sparse - most periods have no change
+            # We want to suggest thresholds based on actual changes, not zeros
+            if metric == "funding":
+                # Keep original values for range display
+                all_values = values
+                # Filter for threshold calculation (exclude values close to 0)
+                non_zero_values = [v for v in values if abs(v) > 0.01]
+
+                if len(non_zero_values) < MIN_SAMPLES:
+                    # Not enough non-zero changes, use all values
+                    stats = self._calculate_statistics(values, precision)
+                    suggestions = self._generate_suggestions(stats, metric)
+                else:
+                    # Calculate stats on non-zero values for better thresholds
+                    stats = self._calculate_statistics(non_zero_values, precision)
+                    suggestions = self._generate_suggestions(stats, metric)
+                    # But show full range from all values
+                    import numpy as np
+                    stats["min"] = round(float(np.min(all_values)), precision)
+                    stats["max"] = round(float(np.max(all_values)), precision)
+
+                # Add info about data composition
+                zero_pct = (len(values) - len(non_zero_values)) / len(values) * 100
+                result = {
+                    "status": "ok",
+                    "symbol": symbol,
+                    "metric": metric,
+                    "period": period,
+                    "sample_count": len(values),
+                    "active_samples": len(non_zero_values),
+                    "time_range_hours": time_range,
+                    "statistics": stats,
+                    "suggestions": suggestions
+                }
+                if zero_pct > 50:
+                    result["info"] = f"Funding rate is stable {zero_pct:.0f}% of the time. Thresholds based on {len(non_zero_values)} active change periods."
+                return result
+
+            # Standard processing for other metrics
             stats = self._calculate_statistics(values, precision)
 
             # Generate threshold suggestions
@@ -369,16 +407,19 @@ class SignalAnalysisService:
         return values, min_ts, max_ts
 
     def _get_funding_history(self, db, symbol, interval_ms, start_time_ms, current_time_ms):
-        """Get funding rate history. Aligned with K-line FUNDING indicator."""
+        """Get funding rate change history. Aligned with K-line FUNDING indicator display."""
         from services.market_flow_indicators import floor_timestamp
         from database.models import MarketAssetMetrics
+
+        # Load data for requested range + one extra interval for first change calc
+        query_start_ms = start_time_ms - interval_ms
 
         records = db.query(
             MarketAssetMetrics.timestamp,
             MarketAssetMetrics.funding_rate
         ).filter(
             MarketAssetMetrics.symbol == symbol.upper(),
-            MarketAssetMetrics.timestamp >= start_time_ms,
+            MarketAssetMetrics.timestamp >= query_start_ms,
             MarketAssetMetrics.timestamp <= current_time_ms,
             MarketAssetMetrics.funding_rate.isnot(None)
         ).order_by(MarketAssetMetrics.timestamp).all()
@@ -389,14 +430,25 @@ class SignalAnalysisService:
         buckets = {}
         for ts, funding in records:
             bucket_ts = floor_timestamp(ts, interval_ms)
-            buckets[bucket_ts] = float(funding) * 100  # Convert to percentage
+            buckets[bucket_ts] = float(funding) * 1000000  # Align with K-line display
 
         sorted_times = sorted(buckets.keys())
-        values = [buckets[ts] for ts in sorted_times]
+        if len(sorted_times) < 2:
+            return [], None, None
 
-        min_ts = sorted_times[0] if sorted_times else None
-        max_ts = sorted_times[-1] if sorted_times else None
-        return values, min_ts, max_ts
+        # Calculate change values (current - previous) for each period
+        change_values = []
+        result_times = []
+        for i in range(1, len(sorted_times)):
+            ts = sorted_times[i]
+            if ts >= start_time_ms:  # Only include values in requested range
+                change = buckets[ts] - buckets[sorted_times[i - 1]]
+                change_values.append(change)
+                result_times.append(ts)
+
+        min_ts = result_times[0] if result_times else None
+        max_ts = result_times[-1] if result_times else None
+        return change_values, min_ts, max_ts
 
     def _get_oi_history(self, db, symbol, interval_ms, start_time_ms, current_time_ms):
         """Get OI USD change history.

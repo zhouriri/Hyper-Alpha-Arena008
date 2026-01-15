@@ -76,7 +76,7 @@ You have exactly 3 tools. Use them efficiently:
 
 ## AVAILABLE INDICATORS (query any you need)
 - oi_delta_percent: OI change % over time window (capital flow indicator)
-- funding_rate: Perpetual funding rate % (market sentiment)
+- funding_rate: Funding rate CHANGE in bps (basis points). Positive=rate increasing, negative=rate decreasing. 1 bps = 0.01%.
 - cvd: Cumulative Volume Delta (buying/selling pressure)
 - depth_ratio: Bid/Ask depth ratio (orderbook imbalance)
 - order_imbalance: Normalized imbalance -1 to +1 (real-time pressure)
@@ -97,7 +97,7 @@ You have exactly 3 tools. Use them efficiently:
 |-----------|------------------------|------------------------|
 | cvd | Buyer volume dominates | Seller volume dominates |
 | oi_delta_percent | Positions increasing | Positions decreasing |
-| funding_rate | Longs pay shorts | Shorts pay longs |
+| funding_rate | Rate increasing (more bullish) | Rate decreasing (more bearish) |
 | taker_buy_ratio | Buyers more aggressive | Sellers more aggressive |
 | order_imbalance | Bid depth > Ask depth | Ask depth > Bid depth |
 | depth_ratio | >1: More bids | <1: More asks |

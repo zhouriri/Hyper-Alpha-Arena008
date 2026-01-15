@@ -207,7 +207,7 @@ trigger_interval: 150 minutes
 | TAKER | `{BTC_TAKER_15m}` | 主动买卖成交量和比率 |
 | OI | `{BTC_OI_15m}` | 持仓量（绝对值） |
 | OI_DELTA | `{BTC_OI_DELTA_15m}` | 持仓量变化百分比 |
-| FUNDING | `{BTC_FUNDING_15m}` | 资金费率（当前和年化） |
+| FUNDING | `{BTC_FUNDING_15m}` | 资金费率变化（基点）和当前费率 |
 | DEPTH | `{BTC_DEPTH_15m}` | 订单簿深度比率（买/卖） |
 | IMBALANCE | `{BTC_IMBALANCE_15m}` | 订单簿失衡度（-1到1） |
 | PRICE_CHANGE | `{BTC_PRICE_CHANGE_15m}` | 价格变化百分比。公式：(当前价-前期价)/前期价*100 |
@@ -251,10 +251,12 @@ OI Delta last 5: -0.30%, +0.50%, +0.80%, +0.10%, +1.20%
 
 **FUNDING（资金费率）**
 ```
-Funding Rate: 0.0125%
+Funding Rate: 12.5 bps (0.0125%)
+Funding Change: +3.2 bps (0.0032%)
 Annualized: 45.63%
-Funding last 5: 0.0080%, 0.0100%, 0.0110%, 0.0120%, 0.0125%
+Funding last 5: 10.0, 11.2, 12.0, 10.0, 12.5 bps
 ```
+注：1 bps（基点）= 0.01% = 0.0001。信号基于费率变化触发，而非绝对值。
 
 **DEPTH（订单簿深度）**
 ```

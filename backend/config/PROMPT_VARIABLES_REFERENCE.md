@@ -207,7 +207,7 @@ Market flow indicators provide insights into order flow, volume delta, and marke
 | TAKER | `{BTC_TAKER_15m}` | Taker Buy/Sell Volume and Ratio |
 | OI | `{BTC_OI_15m}` | Open Interest (absolute value) |
 | OI_DELTA | `{BTC_OI_DELTA_15m}` | Open Interest Change % |
-| FUNDING | `{BTC_FUNDING_15m}` | Funding Rate (current and annualized) |
+| FUNDING | `{BTC_FUNDING_15m}` | Funding Rate Change (bps) and Current Rate |
 | DEPTH | `{BTC_DEPTH_15m}` | Order Book Depth Ratio (Bid/Ask) |
 | IMBALANCE | `{BTC_IMBALANCE_15m}` | Order Book Imbalance (-1 to 1) |
 | PRICE_CHANGE | `{BTC_PRICE_CHANGE_15m}` | Price Change % over time window. Formula: (current-prev)/prev*100 |
@@ -251,10 +251,12 @@ OI Delta last 5: -0.30%, +0.50%, +0.80%, +0.10%, +1.20%
 
 **FUNDING (Funding Rate)**
 ```
-Funding Rate: 0.0125%
+Funding Rate: 12.5 bps (0.0125%)
+Funding Change: +3.2 bps (0.0032%)
 Annualized: 45.63%
-Funding last 5: 0.0080%, 0.0100%, 0.0110%, 0.0120%, 0.0125%
+Funding last 5: 10.0, 11.2, 12.0, 10.0, 12.5 bps
 ```
+Note: 1 bps (basis point) = 0.01% = 0.0001. Signal triggers on rate CHANGE, not absolute value.
 
 **DEPTH (Order Book Depth)**
 ```

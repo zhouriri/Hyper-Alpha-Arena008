@@ -453,6 +453,13 @@ class SignalDetectionService:
                 "trigger_time": time.time(),
                 "description": signal_def.get("description"),
             }
+
+            # For funding metric, add current rate context
+            if metric in ("funding", "funding_rate"):
+                current_rate = self._get_funding_current_rate(symbol, time_window)
+                if current_rate is not None:
+                    trigger_result["current_rate"] = current_rate
+
             self._log_trigger(trigger_result)
             return trigger_result
 
@@ -513,6 +520,30 @@ class SignalDetectionService:
 
         except Exception as e:
             logger.error(f"Error getting metric {metric} for {symbol}: {e}")
+            return None
+
+    def _get_funding_current_rate(self, symbol: str, time_window) -> Optional[float]:
+        """Get current funding rate in bps for context."""
+        try:
+            from database.connection import SessionLocal
+            from services.market_flow_indicators import _get_funding_data, TIMEFRAME_MS
+            from datetime import datetime
+
+            period = time_window if isinstance(time_window, str) else self._time_window_to_period(time_window)
+            if period not in TIMEFRAME_MS:
+                return None
+
+            interval_ms = TIMEFRAME_MS[period]
+            current_time_ms = int(datetime.utcnow().timestamp() * 1000)
+
+            db = SessionLocal()
+            try:
+                data = _get_funding_data(db, symbol, period, interval_ms, current_time_ms)
+                return data.get("current") if data else None
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Error getting funding current rate for {symbol}: {e}")
             return None
 
     def _check_taker_condition(

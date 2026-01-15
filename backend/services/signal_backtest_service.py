@@ -798,16 +798,19 @@ class SignalBacktestService:
     def _compute_funding_buckets(
         self, db, symbol, interval_ms, start_time_ms, current_time_ms
     ) -> Dict[int, float]:
-        """Compute funding rate for each bucket."""
+        """Compute funding rate change for each bucket. Aligned with K-line display."""
         from services.market_flow_indicators import floor_timestamp
         from database.models import MarketAssetMetrics
+
+        # Load data for requested range + one extra interval for first change calc
+        query_start_ms = start_time_ms - interval_ms
 
         records = db.query(
             MarketAssetMetrics.timestamp,
             MarketAssetMetrics.funding_rate
         ).filter(
             MarketAssetMetrics.symbol == symbol.upper(),
-            MarketAssetMetrics.timestamp >= start_time_ms,
+            MarketAssetMetrics.timestamp >= query_start_ms,
             MarketAssetMetrics.timestamp <= current_time_ms,
             MarketAssetMetrics.funding_rate.isnot(None)
         ).order_by(MarketAssetMetrics.timestamp).all()
@@ -815,12 +818,25 @@ class SignalBacktestService:
         if not records:
             return {}
 
-        buckets = {}
+        # First pass: aggregate raw values by bucket (aligned with K-line display)
+        raw_buckets = {}
         for ts, funding in records:
             bucket_ts = floor_timestamp(ts, interval_ms)
-            buckets[bucket_ts] = float(funding) * 100  # Convert to percentage
+            raw_buckets[bucket_ts] = float(funding) * 1000000  # Align with K-line display
 
-        return buckets
+        sorted_times = sorted(raw_buckets.keys())
+        if len(sorted_times) < 2:
+            return {}
+
+        # Second pass: compute change values
+        result = {}
+        for i in range(1, len(sorted_times)):
+            ts = sorted_times[i]
+            if ts >= start_time_ms:  # Only include values in requested range
+                change = raw_buckets[ts] - raw_buckets[sorted_times[i - 1]]
+                result[ts] = change
+
+        return result
 
     def _compute_oi_buckets(
         self, db, symbol, interval_ms, start_time_ms, current_time_ms
@@ -1438,6 +1454,21 @@ class SignalBacktestService:
                 query = query.filter(MarketTradesAggregated.timestamp <= kline_max_ts)
             result = query.order_by(MarketTradesAggregated.timestamp).all()
 
+        elif metric == "funding":
+            table_name = "market_asset_metrics"
+            query = db.query(
+                MarketAssetMetrics.timestamp,
+                MarketAssetMetrics.funding_rate
+            ).filter(
+                MarketAssetMetrics.symbol == symbol.upper(),
+                MarketAssetMetrics.funding_rate.isnot(None)
+            )
+            if start_time:
+                query = query.filter(MarketAssetMetrics.timestamp >= start_time)
+            if kline_max_ts:
+                query = query.filter(MarketAssetMetrics.timestamp <= kline_max_ts)
+            result = query.order_by(MarketAssetMetrics.timestamp).all()
+
         else:
             logger.warning(f"[Backtest] UNKNOWN metric: {metric}, returning empty data")
             return []
@@ -1514,6 +1545,8 @@ class SignalBacktestService:
             return self._calc_volatility_at_time(relevant_data, interval_ms)
         elif metric == "oi":
             return self._calc_oi_at_time(relevant_data, interval_ms)
+        elif metric == "funding":
+            return self._calc_funding_at_time(relevant_data, interval_ms)
         return None
 
     def _calc_cvd_at_time(self, data: List[tuple], interval_ms: int) -> Optional[float]:
@@ -1569,6 +1602,30 @@ class SignalBacktestService:
 
         sorted_times = sorted(buckets.keys())
         return buckets[sorted_times[-1]]
+
+    def _calc_funding_at_time(self, data: List[tuple], interval_ms: int) -> Optional[float]:
+        """
+        Calculate funding rate change at a specific time.
+        Aligned with K-line display: raw × 1000000.
+        Returns change between current and previous bucket.
+        """
+        from services.market_flow_indicators import floor_timestamp
+
+        # Aggregate by bucket, keep last value per bucket
+        buckets = {}
+        for ts, funding in data:
+            bucket_ts = floor_timestamp(ts, interval_ms)
+            if funding is not None:
+                buckets[bucket_ts] = float(funding) * 1000000  # Align with K-line display
+
+        if len(buckets) < 2:
+            return None
+
+        sorted_times = sorted(buckets.keys())
+        # Return change: current - previous
+        curr = buckets[sorted_times[-1]]
+        prev = buckets[sorted_times[-2]]
+        return curr - prev
 
     def _calc_imbalance_at_time(self, data: List[tuple], interval_ms: int) -> Optional[float]:
         """Calculate order book imbalance at a specific time."""

@@ -246,7 +246,7 @@ async function fetchMetricAnalysis(symbol: string, metric: string, period: strin
 const METRICS = [
   { value: 'oi_delta', label: 'OI Delta', desc: 'Open Interest change %. Positive=inflow, Negative=outflow' },
   { value: 'cvd', label: 'CVD', desc: 'Cumulative Volume Delta. Positive=buyers dominate, Negative=sellers dominate' },
-  { value: 'funding', label: 'Funding Rate', desc: 'Funding rate %. Positive=longs pay shorts' },
+  { value: 'funding', label: 'Funding Rate Change', desc: 'Funding rate change (aligned with K-line chart). Positive=rate increasing, Negative=rate decreasing' },
   { value: 'depth_ratio', label: 'Depth Ratio', desc: 'Bid/Ask depth ratio. >1=more bids, <1=more asks' },
   { value: 'taker_ratio', label: 'Taker Ratio', desc: 'Log taker ratio ln(buy/sell). >0=buyers, <0=sellers. Symmetric around 0' },
   { value: 'order_imbalance', label: 'Order Imbalance', desc: 'Order book imbalance (-1 to 1). Positive=buy pressure' },
@@ -1411,7 +1411,7 @@ export default function SignalManager() {
                     <div className="text-xs">
                       <span className="text-muted-foreground">Range: </span>
                       {signalForm.metric === 'funding'
-                        ? `${(metricAnalysis.statistics?.min * 100).toFixed(4)}% ~ ${(metricAnalysis.statistics?.max * 100).toFixed(4)}%`
+                        ? `${metricAnalysis.statistics?.min.toFixed(1)} ~ ${metricAnalysis.statistics?.max.toFixed(1)}`
                         : `${metricAnalysis.statistics?.min.toFixed(4)} ~ ${metricAnalysis.statistics?.max.toFixed(4)}`
                       }
                     </div>
@@ -1424,7 +1424,7 @@ export default function SignalManager() {
                         title={metricAnalysis.suggestions.aggressive.description}
                       >
                         {t('signals.dialog.aggressive', 'Aggressive')} {signalForm.metric === 'funding'
-                          ? `${(metricAnalysis.suggestions.aggressive.threshold * 100).toFixed(4)}%`
+                          ? metricAnalysis.suggestions.aggressive.threshold.toFixed(1)
                           : metricAnalysis.suggestions.aggressive.threshold.toFixed(4)}
                         {(metricAnalysis.suggestions.aggressive as any).multiplier && ` (${(metricAnalysis.suggestions.aggressive as any).multiplier}x)`}
                       </button>
@@ -1435,7 +1435,7 @@ export default function SignalManager() {
                         title={metricAnalysis.suggestions.moderate.description}
                       >
                         {t('signals.dialog.moderate', 'Moderate')} {signalForm.metric === 'funding'
-                          ? `${(metricAnalysis.suggestions.moderate.threshold * 100).toFixed(4)}%`
+                          ? metricAnalysis.suggestions.moderate.threshold.toFixed(1)
                           : metricAnalysis.suggestions.moderate.threshold.toFixed(4)}
                         {(metricAnalysis.suggestions.moderate as any).multiplier && ` (${(metricAnalysis.suggestions.moderate as any).multiplier}x)`} ★
                       </button>
@@ -1446,7 +1446,7 @@ export default function SignalManager() {
                         title={metricAnalysis.suggestions.conservative.description}
                       >
                         {t('signals.dialog.conservative', 'Conservative')} {signalForm.metric === 'funding'
-                          ? `${(metricAnalysis.suggestions.conservative.threshold * 100).toFixed(4)}%`
+                          ? metricAnalysis.suggestions.conservative.threshold.toFixed(1)
                           : metricAnalysis.suggestions.conservative.threshold.toFixed(4)}
                         {(metricAnalysis.suggestions.conservative as any).multiplier && ` (${(metricAnalysis.suggestions.conservative as any).multiplier}x)`}
                       </button>

@@ -131,7 +131,7 @@ def get_indicator_value(
             return data.get("current") if data else None
         elif indicator_upper == "FUNDING":
             data = _get_funding_data(db, symbol, period, interval_ms, current_time_ms)
-            return data.get("current") if data else None
+            return data.get("change") if data else None  # Return change in bps
         elif indicator_upper == "PRICE_CHANGE":
             data = _get_price_change_data(db, symbol, period, interval_ms, current_time_ms)
             return data.get("current") if data else None
@@ -507,26 +507,42 @@ def _get_funding_data(
     if not sorted_times:
         return None
 
-    # Get funding rate values (convert to percentage)
+    # Get funding rate values aligned with K-line chart display
+    # Database stores decimal form (e.g., 0.0000125)
+    # K-line chart: raw × 100 (to %) × 10000 = raw × 1000000 for display
+    # This gives values like 12.5 when raw is 0.0000125
     funding_values = []
     for ts in sorted_times:
         fr = buckets[ts]
         if fr is not None:
-            funding_values.append(float(fr) * 100)  # Convert to percentage
+            funding_values.append(float(fr) * 1000000)  # Align with K-line display
 
     if not funding_values:
         return None
 
-    current_funding = funding_values[-1]
+    current_val = funding_values[-1]
+    # Convert back to percentage for display: val / 10000 = percentage
+    current_pct = current_val / 10000
+
+    # Calculate change from previous period
+    if len(funding_values) >= 2:
+        change_val = current_val - funding_values[-2]
+    else:
+        change_val = 0.0
+    change_pct = change_val / 10000
+
     last_5 = funding_values[-5:] if len(funding_values) >= 5 else funding_values
 
     # Calculate annualized rate (assuming 8-hour funding periods, 3 per day)
-    annualized = current_funding * 3 * 365
+    annualized = current_pct * 3 * 365
 
     return {
-        "current": current_funding,
-        "last_5": last_5,
-        "annualized": annualized,
+        "current": current_val,        # Current rate (K-line display unit)
+        "current_pct": current_pct,    # Current rate in percentage
+        "change": change_val,          # Change from previous period (K-line display unit)
+        "change_pct": change_pct,      # Change in percentage
+        "last_5": last_5,              # Last 5 values (K-line display unit)
+        "annualized": annualized,      # Annualized rate in percentage
         "period": period
     }
 
