@@ -1332,10 +1332,10 @@ def run_backtest(program_id: int, request: BacktestRequest, db: Session = Depend
 
 class ExecutionLogResponse(BaseModel):
     id: int
-    binding_id: int
+    binding_id: Optional[int]  # Can be NULL if binding was deleted
     account_id: int
     account_name: str
-    program_id: int
+    program_id: Optional[int]  # Can be NULL if program was deleted
     program_name: str
     trigger_type: str  # "signal" or "scheduled"
     trigger_symbol: Optional[str]
