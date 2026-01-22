@@ -316,13 +316,20 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
     setTriggerLogs([])
 
     try {
+      // Convert user's local date selection to UTC milliseconds
+      // User selects dates in their local timezone, we need to send UTC timestamps
+      const startLocal = new Date(startDate + 'T00:00:00')
+      const endLocal = new Date(endDate + 'T23:59:59.999')
+      const startTimeMs = startLocal.getTime()
+      const endTimeMs = endLocal.getTime()
+
       const response = await fetch('/api/programs/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           binding_id: binding.id,
-          start_time: startDate,
-          end_time: endDate,
+          start_time_ms: startTimeMs,
+          end_time_ms: endTimeMs,
           initial_balance: parseFloat(initialBalance) || 10000,
         }),
       })

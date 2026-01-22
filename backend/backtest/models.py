@@ -15,8 +15,8 @@ class BacktestConfig:
     code: str                              # Strategy code
     signal_pool_ids: List[int]             # Signal pool IDs to use
     symbols: List[str]                     # Trading symbols ["BTC", "ETH"]
-    start_time: Any                        # Backtest start time (datetime or str)
-    end_time: Any                          # Backtest end time (datetime or str)
+    start_time_ms: int                     # Backtest start time (UTC milliseconds)
+    end_time_ms: int                       # Backtest end time (UTC milliseconds)
 
     # Scheduled trigger (optional)
     scheduled_interval: Optional[str] = None  # "1h", "4h", "1d", None
@@ -29,22 +29,15 @@ class BacktestConfig:
     # Execution assumptions
     execution_price: str = "close"         # "close", "open", "vwap"
 
-    def __post_init__(self):
-        """Convert string times to datetime if needed."""
-        if isinstance(self.start_time, str):
-            self.start_time = datetime.fromisoformat(self.start_time)
-        if isinstance(self.end_time, str):
-            self.end_time = datetime.fromisoformat(self.end_time)
+    @property
+    def start_time(self) -> datetime:
+        """Start time as datetime (UTC)."""
+        return datetime.utcfromtimestamp(self.start_time_ms / 1000)
 
     @property
-    def start_time_ms(self) -> int:
-        """Start time in milliseconds."""
-        return int(self.start_time.timestamp() * 1000)
-
-    @property
-    def end_time_ms(self) -> int:
-        """End time in milliseconds."""
-        return int(self.end_time.timestamp() * 1000)
+    def end_time(self) -> datetime:
+        """End time as datetime (UTC)."""
+        return datetime.utcfromtimestamp(self.end_time_ms / 1000)
 
 
 @dataclass
@@ -96,6 +89,27 @@ class BacktestTradeRecord:
     def __post_init__(self):
         if self.triggered_signals is None:
             self.triggered_signals = []
+
+
+@dataclass
+class TriggerExecutionResult:
+    """Result of executing a single trigger in backtest."""
+    trigger: TriggerEvent
+    trigger_symbol: str
+    prices: Dict[str, float]
+
+    # Strategy execution result
+    executor_result: Any                   # SandboxExecutor result
+    trade: Optional[BacktestTradeRecord]   # Trade if any
+    tp_sl_trades: List[BacktestTradeRecord]  # TP/SL trades if any
+
+    # Account state
+    equity_before: float
+    equity_after: float
+    unrealized_pnl: float
+
+    # Data queries during execution
+    data_queries: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

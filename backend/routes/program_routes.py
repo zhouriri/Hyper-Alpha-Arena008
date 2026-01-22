@@ -1594,8 +1594,8 @@ async def get_available_symbols(db: Session = Depends(get_db)):
 class BacktestRequest(BaseModel):
     """Request model for program backtest."""
     binding_id: int
-    start_time: str  # ISO format: "2024-01-01" or "2024-01-01T00:00:00"
-    end_time: str
+    start_time_ms: int  # UTC milliseconds timestamp
+    end_time_ms: int    # UTC milliseconds timestamp
     initial_balance: float = 10000.0
     slippage_percent: float = 0.05
     fee_rate: float = 0.035
@@ -1672,8 +1672,8 @@ async def run_backtest(request: BacktestRequest, db: Session = Depends(get_db)):
         code=program.code,
         signal_pool_ids=signal_pool_ids,
         symbols=list(symbols),
-        start_time=request.start_time,
-        end_time=request.end_time,
+        start_time_ms=request.start_time_ms,
+        end_time_ms=request.end_time_ms,
         scheduled_interval=scheduled_interval,
         initial_balance=request.initial_balance,
         slippage_percent=request.slippage_percent,
@@ -1718,8 +1718,11 @@ async def run_backtest(request: BacktestRequest, db: Session = Depends(get_db)):
             db.commit()
             db.refresh(backtest_record)
 
-            # Send init event with trigger count and backtest_id
-            yield f"data: {json.dumps({'type': 'init', 'total_triggers': len(triggers), 'backtest_id': backtest_record.id})}\n\n"
+            # Estimate total triggers including dynamic scheduled triggers
+            estimated_total = engine.estimate_total_triggers(config, triggers)
+
+            # Send init event with estimated trigger count and backtest_id
+            yield f"data: {json.dumps({'type': 'init', 'total_triggers': estimated_total, 'backtest_id': backtest_record.id})}\n\n"
             await asyncio.sleep(0.01)
 
             # Phase 2: Run backtest with progress updates
@@ -1744,23 +1747,20 @@ async def run_backtest(request: BacktestRequest, db: Session = Depends(get_db)):
     )
 
 
-async def _run_backtest_with_progress(engine, config, triggers, db, backtest_id):
+async def _run_backtest_with_progress(engine, config, signal_triggers, db, backtest_id):
     """
     Run backtest event loop with progress updates and database logging.
 
-    Yields SSE events for progress and final results.
-    Records each trigger's decision to BacktestTriggerLog.
+    Uses engine.run_event_loop_generator for core logic (including dynamic scheduled triggers).
+    This function only handles SSE progress updates and database logging.
     """
-    from backtest import VirtualAccount, ExecutionSimulator, HistoricalDataProvider
-    from backtest.models import BacktestTradeRecord
-    from program_trader.executor import SandboxExecutor
-    from program_trader.models import MarketData, Position
+    from backtest import VirtualAccount, ExecutionSimulator, HistoricalDataProvider, TriggerExecutionResult
     from datetime import datetime, timezone
     import time
 
     start_time = time.time()
 
-    # Initialize components
+    # Initialize components (passed to engine generator)
     account = VirtualAccount(initial_balance=config.initial_balance)
     simulator = ExecutionSimulator(
         slippage_percent=config.slippage_percent,
@@ -1772,38 +1772,40 @@ async def _run_backtest_with_progress(engine, config, triggers, db, backtest_id)
         start_time_ms=config.start_time_ms,
         end_time_ms=config.end_time_ms,
     )
-    executor = SandboxExecutor(timeout_seconds=5)
 
     trades = []
     equity_curve = []
-    total = len(triggers)
-    progress_interval = max(1, total // 50)  # Update every 2%
-
-    # Use continuous index for trigger logs (not enumerate's i which may have gaps)
+    all_triggers = []
     trigger_log_index = 0
 
-    for i, trigger in enumerate(triggers):
-        equity_before = account.equity
+    # Estimate total triggers for progress (signal + estimated scheduled)
+    # This is approximate since scheduled triggers are dynamic
+    estimated_total = len(signal_triggers)
+    if config.scheduled_interval:
+        from backtest.engine import INTERVAL_MS
+        interval_ms = INTERVAL_MS.get(config.scheduled_interval, 0)
+        if interval_ms > 0:
+            duration_ms = config.end_time_ms - config.start_time_ms
+            estimated_total += int(duration_ms / interval_ms)
 
-        # Set current time and clear query log for this trigger
-        data_provider.set_current_time(trigger.timestamp)
-        data_provider.clear_query_log()
+    progress_interval = max(1, estimated_total // 50)
+    processed_count = 0
 
-        # Get current prices
-        prices = data_provider.get_current_prices(config.symbols)
-        if not prices:
-            continue
+    # Use engine's generator for core logic
+    for exec_result in engine.run_event_loop_generator(
+        config, signal_triggers, account, simulator, data_provider
+    ):
+        trigger = exec_result.trigger
+        all_triggers.append(trigger)
 
-        # Check TP/SL triggers and record them
-        tp_sl_trades = simulator.check_tp_sl_triggers(account, prices, trigger.timestamp)
-        for tp_sl_trade in tp_sl_trades:
+        # Record TP/SL trades
+        for tp_sl_trade in exec_result.tp_sl_trades:
             trades.append(tp_sl_trade)
-            # Record TP/SL trigger as separate log entry
             tp_sl_time = datetime.fromtimestamp(tp_sl_trade.exit_timestamp / 1000, tz=timezone.utc)
             tp_sl_log = BacktestTriggerLog(
                 backtest_id=backtest_id,
-                trigger_index=trigger_log_index,  # Use continuous index
-                trigger_type=tp_sl_trade.exit_reason,  # "tp" or "sl"
+                trigger_index=trigger_log_index,
+                trigger_type=tp_sl_trade.exit_reason,
                 trigger_time=tp_sl_time,
                 symbol=tp_sl_trade.symbol,
                 decision_type="program",
@@ -1814,12 +1816,12 @@ async def _run_backtest_with_progress(engine, config, triggers, db, backtest_id)
                 decision_reason=tp_sl_trade.reason,
                 entry_price=tp_sl_trade.entry_price,
                 exit_price=tp_sl_trade.exit_price,
-                pnl=0,  # Will set realized_pnl instead
+                pnl=0,
                 fee=tp_sl_trade.fee,
                 unrealized_pnl=0,
                 realized_pnl=tp_sl_trade.pnl,
-                equity_before=equity_before,
-                equity_after=account.equity,
+                equity_before=exec_result.equity_before,
+                equity_after=exec_result.equity_after,
                 decision_input=json.dumps({
                     "trigger": tp_sl_trade.exit_reason.upper(),
                     "entry_price": tp_sl_trade.entry_price,
@@ -1828,111 +1830,75 @@ async def _run_backtest_with_progress(engine, config, triggers, db, backtest_id)
                 decision_output=None,
             )
             db.add(tp_sl_log)
-            equity_before = account.equity  # Update for next iteration
+            trigger_log_index += 1
 
-        # Update equity
-        account.update_equity(prices)
+        # Record main trigger
+        if exec_result.trade:
+            trades.append(exec_result.trade)
 
-        # Determine trigger symbol
-        trigger_symbol = trigger.symbol if trigger.symbol else config.symbols[0]
+        equity_curve.append({
+            "timestamp": trigger.timestamp,
+            "equity": exec_result.equity_after,
+            "balance": account.balance,
+        })
 
-        # Build MarketData
-        market_data = engine._build_market_data(
-            account, data_provider, trigger, trigger_symbol
-        )
-
-        # Execute strategy
-        result = executor.execute(config.code, market_data, {})
-
-        # Prepare trigger log data
+        # Build trigger log data
         trigger_time = datetime.fromtimestamp(trigger.timestamp / 1000, tz=timezone.utc)
+        result = exec_result.executor_result
+        trade = exec_result.trade
+
         decision_action = "hold"
-        decision_symbol = trigger_symbol
+        decision_symbol = exec_result.trigger_symbol
         decision_side = None
         decision_size = None
         decision_reason = ""
-        entry_price = prices.get(trigger_symbol, 0)
+        entry_price = exec_result.prices.get(exec_result.trigger_symbol, 0)
         trade_fee = 0.0
         trade_realized_pnl = 0.0
         execution_error = None
 
-        # Build decision input snapshot (minimal for storage)
         decision_input = {
             "balance": account.balance,
-            "equity": account.equity,
+            "equity": exec_result.equity_after,
             "trigger_type": trigger.trigger_type,
-            "trigger_symbol": trigger_symbol,
-            "prices": prices,
+            "trigger_symbol": exec_result.trigger_symbol,
+            "prices": exec_result.prices,
             "positions": {k: {"side": v.side, "size": v.size, "entry_price": v.entry_price}
                          for k, v in account.positions.items()},
+            "signal_pool_name": trigger.pool_name or "",
+            "pool_logic": trigger.pool_logic or "OR",
+            "triggered_signals": trigger.triggered_signals or [],
+            "trigger_market_regime": trigger.market_regime,
         }
 
         decision_output = None
-        trade = None
-
-        if result.success and result.decision:
+        if result and result.success and result.decision:
             decision = result.decision
-            symbol = decision.symbol or trigger_symbol
-            current_price = prices.get(symbol, 0)
-
             decision_action = decision.operation
-            decision_symbol = symbol
+            decision_symbol = decision.symbol or exec_result.trigger_symbol
             decision_reason = decision.reason
-
-            # Build decision output
             decision_output = decision.to_dict() if hasattr(decision, 'to_dict') else {
                 "operation": decision.operation,
                 "symbol": decision.symbol,
                 "reason": decision.reason,
             }
-
-            if current_price > 0 and decision.operation != "hold":
-                signal_names = [
-                    s.get("signal_name", "") for s in (trigger.triggered_signals or [])
-                ]
-                trade = simulator.execute_decision(
-                    decision=decision,
-                    account=account,
-                    current_price=current_price,
-                    timestamp=trigger.timestamp,
-                    trigger_type=trigger.trigger_type,
-                    pool_name=trigger.pool_name,
-                    triggered_signals=signal_names,
-                )
-                if trade:
-                    trades.append(trade)
-                    decision_side = trade.side
-                    decision_size = trade.size
-                    entry_price = trade.entry_price
-                    trade_fee = trade.fee
-                    trade_realized_pnl = trade.pnl if trade.operation == "close" else 0
-        elif not result.success:
+            if trade:
+                decision_side = trade.side
+                decision_size = trade.size
+                entry_price = trade.entry_price
+                trade_fee = trade.fee
+                trade_realized_pnl = trade.pnl if trade.operation == "close" else 0
+        elif result and not result.success:
             execution_error = result.error
 
-        # Update equity and record
-        account.update_equity(prices)
-        equity_after = account.equity
-
-        # Calculate current unrealized PnL for this symbol
-        current_unrealized_pnl = account.unrealized_pnl_total
-
-        equity_curve.append({
-            "timestamp": trigger.timestamp,
-            "equity": account.equity,
-            "balance": account.balance,
-        })
-
-        # Save trigger log to database
-        # Capture data queries and execution logs
-        data_queries = data_provider.get_query_log()
         execution_logs = result.logs if result else []
 
         trigger_log = BacktestTriggerLog(
             backtest_id=backtest_id,
-            trigger_index=trigger_log_index,  # Use continuous index
+            trigger_index=trigger_log_index,
             trigger_type=trigger.trigger_type,
             trigger_time=trigger_time,
-            symbol=trigger_symbol,
+            symbol=exec_result.trigger_symbol,
             decision_type="program",
             decision_action=decision_action,
             decision_symbol=decision_symbol,
@@ -1940,40 +1906,36 @@ async def _run_backtest_with_progress(engine, config, triggers, db, backtest_id)
             decision_size=decision_size,
             decision_reason=decision_reason,
             entry_price=entry_price,
-            pnl=0,  # Deprecated, use realized_pnl instead
+            pnl=0,
             fee=trade_fee,
-            unrealized_pnl=current_unrealized_pnl,
+            unrealized_pnl=exec_result.unrealized_pnl,
             realized_pnl=trade_realized_pnl,
-            equity_before=equity_before,
-            equity_after=equity_after,
+            equity_before=exec_result.equity_before,
+            equity_after=exec_result.equity_after,
             decision_input=json.dumps(decision_input),
             decision_output=json.dumps(decision_output) if decision_output else None,
-            data_queries=json.dumps(data_queries) if data_queries else None,
+            data_queries=json.dumps(exec_result.data_queries) if exec_result.data_queries else None,
             execution_logs=json.dumps(execution_logs) if execution_logs else None,
             execution_error=execution_error,
         )
         db.add(trigger_log)
-
-        # Increment continuous index after saving
         trigger_log_index += 1
 
-        # Commit periodically to avoid large transactions
         if trigger_log_index % 100 == 0:
             db.commit()
 
-        # Yield progress update periodically
-        if (i + 1) % progress_interval == 0 or i == total - 1:
-            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total, 'equity': account.equity})}\n\n"
-            await asyncio.sleep(0.001)  # Allow other tasks
+        processed_count += 1
+        if processed_count % progress_interval == 0:
+            yield f"data: {json.dumps({'type': 'progress', 'current': processed_count, 'total': estimated_total, 'equity': exec_result.equity_after})}\n\n"
+            await asyncio.sleep(0.001)
 
-    # Final commit for remaining logs
     db.commit()
 
-    # Calculate final statistics
-    calc_result = engine._calculate_result(trades, equity_curve, triggers, account, config)
+    # Calculate final statistics using all_triggers (includes dynamic scheduled)
+    calc_result = engine._calculate_result(trades, equity_curve, all_triggers, account, config)
     calc_result.execution_time_ms = (time.time() - start_time) * 1000
 
-    # Update backtest record with final results
+    # Update backtest record
     backtest_record = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
     if backtest_record:
         backtest_record.final_equity = account.equity
@@ -1989,11 +1951,11 @@ async def _run_backtest_with_progress(engine, config, triggers, db, backtest_id)
         backtest_record.sharpe_ratio = calc_result.sharpe_ratio
         backtest_record.equity_curve = json.dumps(equity_curve)
         backtest_record.execution_time_ms = int(calc_result.execution_time_ms)
+        backtest_record.total_triggers = calc_result.total_triggers  # Update with actual count
         backtest_record.status = "completed"
         backtest_record.completed_at = datetime.now(timezone.utc)
         db.commit()
 
-    # Yield complete event with results
     complete_data = {
         "type": "complete",
         "backtest_id": backtest_id,
@@ -2189,7 +2151,7 @@ def get_backtest_triggers(
                 "id": t.id,
                 "trigger_index": t.trigger_index,
                 "trigger_type": t.trigger_type,
-                "trigger_time": t.trigger_time.isoformat() if t.trigger_time else None,
+                "trigger_time": t.trigger_time.isoformat() + "Z" if t.trigger_time else None,
                 "symbol": t.symbol,
                 "decision_action": t.decision_action,
                 "decision_symbol": t.decision_symbol,
@@ -2277,7 +2239,7 @@ def get_trigger_detail(trigger_id: int, db: Session = Depends(get_db)):
         "backtest_id": trigger.backtest_id,
         "trigger_index": trigger.trigger_index,
         "trigger_type": trigger.trigger_type,
-        "trigger_time": trigger.trigger_time.isoformat() if trigger.trigger_time else None,
+        "trigger_time": trigger.trigger_time.isoformat() + "Z" if trigger.trigger_time else None,
         "symbol": trigger.symbol,
         "decision_type": trigger.decision_type,
         "decision_action": trigger.decision_action,

@@ -20,6 +20,7 @@ from .models import (
     TriggerEvent,
     BacktestResult,
     BacktestTradeRecord,
+    TriggerExecutionResult,
 )
 from .virtual_account import VirtualAccount
 from .execution_simulator import ExecutionSimulator
@@ -31,6 +32,7 @@ __all__ = [
     "TriggerEvent",
     "BacktestResult",
     "BacktestTradeRecord",
+    "TriggerExecutionResult",
     "VirtualAccount",
     "ExecutionSimulator",
     "HistoricalDataProvider",
