@@ -1150,6 +1150,111 @@ class ProgramExecutionLog(Base):
 
 
 # ============================================================================
+# BACKTEST SYSTEM
+# ============================================================================
+class BacktestResult(Base):
+    """
+    Stores backtest results for both Program and Prompt (future) backtests.
+    """
+    __tablename__ = "backtest_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    backtest_type = Column(String(20), nullable=False, default="program")  # "program" | "prompt"
+    binding_id = Column(Integer, ForeignKey("account_program_bindings.id"), nullable=True)
+    prompt_id = Column(Integer, nullable=True)  # For future prompt backtest
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Configuration
+    config = Column(Text, nullable=True)  # JSON: full config snapshot
+
+    # Time range
+    start_time = Column(TIMESTAMP, nullable=True)
+    end_time = Column(TIMESTAMP, nullable=True)
+
+    # Results
+    initial_balance = Column(Float, default=10000)
+    final_equity = Column(Float, nullable=True)
+    total_pnl = Column(Float, default=0)
+    total_pnl_percent = Column(Float, default=0)
+    max_drawdown = Column(Float, default=0)
+    max_drawdown_percent = Column(Float, default=0)
+
+    # Statistics
+    total_triggers = Column(Integer, default=0)
+    total_trades = Column(Integer, default=0)
+    winning_trades = Column(Integer, default=0)
+    losing_trades = Column(Integer, default=0)
+    win_rate = Column(Float, default=0)
+    profit_factor = Column(Float, default=0)
+    sharpe_ratio = Column(Float, nullable=True)
+
+    # Equity curve (JSON array)
+    equity_curve = Column(Text, nullable=True)
+
+    # Execution info
+    execution_time_ms = Column(Integer, nullable=True)
+    status = Column(String(20), default="running")  # "running" | "completed" | "error"
+    error_message = Column(Text, nullable=True)
+
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    completed_at = Column(TIMESTAMP, nullable=True)
+
+    # Relationships
+    trigger_logs = relationship("BacktestTriggerLog", back_populates="backtest", cascade="all, delete-orphan")
+
+
+class BacktestTriggerLog(Base):
+    """
+    Stores detailed logs for each trigger during backtest.
+    Supports both Program decisions and AI decisions (future).
+    """
+    __tablename__ = "backtest_trigger_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    backtest_id = Column(Integer, ForeignKey("backtest_results.id", ondelete="CASCADE"), nullable=False)
+    trigger_index = Column(Integer, nullable=False)
+
+    # Trigger info
+    trigger_type = Column(String(20), nullable=True)  # "signal" | "scheduled"
+    trigger_time = Column(TIMESTAMP, nullable=True)
+    symbol = Column(String(20), nullable=True)
+
+    # Decision info
+    decision_type = Column(String(20), default="program")  # "program" | "ai"
+    decision_action = Column(String(20), nullable=True)  # "open_long" | "close" | "hold" | etc.
+    decision_symbol = Column(String(20), nullable=True)
+    decision_side = Column(String(10), nullable=True)  # "long" | "short"
+    decision_size = Column(Float, nullable=True)
+    decision_reason = Column(Text, nullable=True)
+
+    # Trade result
+    entry_price = Column(Float, nullable=True)
+    exit_price = Column(Float, nullable=True)
+    pnl = Column(Float, nullable=True)
+    fee = Column(Float, nullable=True)  # Trading fee for this trigger
+    unrealized_pnl = Column(Float, nullable=True)  # Current unrealized PnL
+    realized_pnl = Column(Float, nullable=True)  # Realized PnL from this trade
+
+    # Equity tracking
+    equity_before = Column(Float, nullable=True)
+    equity_after = Column(Float, nullable=True)
+
+    # Full snapshots (JSON)
+    decision_input = Column(Text, nullable=True)  # MarketData snapshot
+    decision_output = Column(Text, nullable=True)  # Full decision result
+    data_queries = Column(Text, nullable=True)  # Data queries during execution (JSON)
+    execution_logs = Column(Text, nullable=True)  # log() outputs during execution (JSON)
+
+    # Error tracking
+    execution_error = Column(Text, nullable=True)
+
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+    # Relationships
+    backtest = relationship("BacktestResult", back_populates="trigger_logs")
+
+
+# ============================================================================
 # CRYPTO market trading configuration constants
 # ============================================================================
 CRYPTO_MIN_COMMISSION = 0.1  # $0.1 minimum commission

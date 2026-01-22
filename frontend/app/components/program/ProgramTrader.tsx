@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Check, X, Code, Play, AlertCircle, CheckCircle2, Copy, Sparkles, BookOpen } from 'lucide-react'
+import { Plus, Trash2, Check, X, Code, Play, AlertCircle, CheckCircle2, Copy, Sparkles, BookOpen, LineChart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,7 @@ import { testRunProgram, TestRunResponse, TradingAccount, getAccounts, getProgra
 import { copyToClipboard } from '@/lib/utils'
 import AiProgramChatModal from './AiProgramChatModal'
 import { BindingPreviewRunDialog } from './BindingPreviewRunDialog'
+import { BacktestModal } from './BacktestModal'
 
 interface Program {
   id: number
@@ -146,6 +147,10 @@ export default function ProgramTrader() {
   // Preview Run state
   const [previewRunOpen, setPreviewRunOpen] = useState(false)
   const [previewRunBinding, setPreviewRunBinding] = useState<Binding | null>(null)
+
+  // Backtest state
+  const [backtestOpen, setBacktestOpen] = useState(false)
+  const [backtestBinding, setBacktestBinding] = useState<Binding | null>(null)
 
   // AI Chat state
   const [aiChatOpen, setAiChatOpen] = useState(false)
@@ -851,6 +856,10 @@ export default function ProgramTrader() {
                         <Play className="h-3 w-3 mr-1" />
                         {t('programTrader.preview', 'Preview')}
                       </Button>
+                      <Button size="sm" variant="outline" onClick={() => { setBacktestBinding(b); setBacktestOpen(true) }}>
+                        <LineChart className="h-3 w-3 mr-1" />
+                        {t('programTrader.backtest', 'Backtest')}
+                      </Button>
                       <Button size="sm" variant="outline" onClick={() => selectBindingForEdit(b)}>
                         {t('common.edit')}
                       </Button>
@@ -1073,6 +1082,15 @@ export default function ProgramTrader() {
           bindingId={previewRunBinding.id}
           programName={previewRunBinding.program_name}
           accountName={previewRunBinding.account_name}
+        />
+      )}
+
+      {/* Backtest Modal */}
+      {backtestBinding && (
+        <BacktestModal
+          open={backtestOpen}
+          onOpenChange={setBacktestOpen}
+          binding={backtestBinding}
         />
       )}
     </div>

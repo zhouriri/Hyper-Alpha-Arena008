@@ -196,6 +196,20 @@ class MarketData:
     # Data provider (injected at runtime)
     _data_provider: Any = field(default=None, repr=False)
 
+    def get_price(self, symbol: str) -> float:
+        """Get current price for symbol."""
+        if self._data_provider:
+            # Try get_current_prices first (for backtest)
+            if hasattr(self._data_provider, 'get_current_prices'):
+                prices = self._data_provider.get_current_prices([symbol])
+                if prices and symbol in prices:
+                    return prices[symbol]
+            # Fallback to get_market_data
+            data = self._data_provider.get_market_data(symbol)
+            if data and 'price' in data:
+                return data['price']
+        return 0.0
+
     def get_price_change(self, symbol: str, period: str) -> Dict[str, float]:
         """Get price change for symbol over period."""
         if self._data_provider:

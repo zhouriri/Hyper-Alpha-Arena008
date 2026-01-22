@@ -64,11 +64,13 @@ services:
 
       # Backend subdirectories
       - ./backend/api:/app/backend/api
+      - ./backend/backtest:/app/backend/backtest
       - ./backend/config:/app/backend/config
       - ./backend/database:/app/backend/database
       - ./backend/factors:/app/backend/factors
       - ./backend/program_trader:/app/backend/program_trader
       - ./backend/repositories:/app/backend/repositories
+      - ./backend/routes:/app/backend/routes
       - ./backend/schemas:/app/backend/schemas
       - ./backend/services:/app/backend/services
       - ./backend/utils:/app/backend/utils

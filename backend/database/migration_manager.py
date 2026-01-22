@@ -51,6 +51,8 @@ MIGRATIONS = [
     "add_pnl_fields_to_program_execution_logs.py",
     "add_is_complete_to_ai_program_messages.py",
     "add_ai_prompt_message_fields.py",
+    "add_backtest_tables.py",
+    "add_backtest_extended_fields.py",
 ]
 
 

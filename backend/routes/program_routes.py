@@ -7,15 +7,18 @@ API routes for Program Trader with N:N binding architecture.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 import json
+import asyncio
 
 from database.connection import get_db
 from database.models import (
     TradingProgram, AccountProgramBinding, ProgramExecutionLog,
-    User, Account, SignalPool
+    User, Account, SignalPool, BacktestResult, BacktestTriggerLog
 )
 from program_trader import validate_strategy_code, BacktestEngine
 from program_trader.models import Kline
@@ -1582,3 +1585,718 @@ async def get_available_symbols(db: Session = Depends(get_db)):
         return {"symbols": sorted([s[0] for s in symbols])}
     except Exception as e:
         return {"symbols": ["BTC", "ETH", "SOL"], "error": str(e)}
+
+
+# ============================================================================
+# Backtest API
+# ============================================================================
+
+class BacktestRequest(BaseModel):
+    """Request model for program backtest."""
+    binding_id: int
+    start_time: str  # ISO format: "2024-01-01" or "2024-01-01T00:00:00"
+    end_time: str
+    initial_balance: float = 10000.0
+    slippage_percent: float = 0.05
+    fee_rate: float = 0.035
+
+
+@router.post("/backtest")
+async def run_backtest(request: BacktestRequest, db: Session = Depends(get_db)):
+    """
+    Run backtest for a program binding with SSE progress updates.
+
+    Returns Server-Sent Events with:
+    - type: "init" - Initial trigger count
+    - type: "progress" - Execution progress updates
+    - type: "complete" - Final results
+    - type: "error" - Error message
+    """
+    from backtest import (
+        BacktestConfig, ProgramBacktestEngine,
+        BacktestResult as BacktestResultData, TriggerEvent
+    )
+    from backtest.engine import INTERVAL_MS
+
+    # Get binding info
+    binding = db.query(AccountProgramBinding).filter(
+        AccountProgramBinding.id == request.binding_id
+    ).first()
+
+    if not binding:
+        raise HTTPException(status_code=404, detail="Binding not found")
+
+    # Get program
+    program = db.query(TradingProgram).filter(
+        TradingProgram.id == binding.program_id
+    ).first()
+
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    # Get signal pool symbols
+    signal_pool_ids = []
+    symbols = set()
+
+    if binding.signal_pool_ids:
+        pool_ids = binding.signal_pool_ids
+        if isinstance(pool_ids, str):
+            pool_ids = json.loads(pool_ids)
+        signal_pool_ids = pool_ids
+
+        for pool_id in pool_ids:
+            pool = db.query(SignalPool).filter(SignalPool.id == pool_id).first()
+            if pool and pool.symbols:
+                # symbols is a list field
+                pool_symbols = pool.symbols
+                if isinstance(pool_symbols, str):
+                    pool_symbols = json.loads(pool_symbols)
+                for sym in pool_symbols:
+                    symbols.add(sym)
+
+    # Default to BTC if no symbols found
+    if not symbols:
+        symbols = {"BTC"}
+
+    # Determine scheduled interval
+    scheduled_interval = None
+    if binding.scheduled_trigger_enabled and binding.trigger_interval:
+        interval_sec = binding.trigger_interval
+        for name, ms in INTERVAL_MS.items():
+            if ms // 1000 == interval_sec:
+                scheduled_interval = name
+                break
+
+    # Create backtest config
+    config = BacktestConfig(
+        code=program.code,
+        signal_pool_ids=signal_pool_ids,
+        symbols=list(symbols),
+        start_time=request.start_time,
+        end_time=request.end_time,
+        scheduled_interval=scheduled_interval,
+        initial_balance=request.initial_balance,
+        slippage_percent=request.slippage_percent,
+        fee_rate=request.fee_rate,
+    )
+
+    async def generate_events():
+        """Generate SSE events during backtest execution."""
+        engine = ProgramBacktestEngine(db)
+        backtest_record = None
+
+        try:
+            # Phase 1: Generate triggers (send calculating status)
+            yield f"data: {json.dumps({'type': 'calculating', 'message': 'Calculating trigger points...'})}\n\n"
+            await asyncio.sleep(0.01)
+
+            triggers = engine._generate_trigger_events(config)
+
+            if not triggers:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No triggers generated'})}\n\n"
+                return
+
+            # Create backtest record in database
+            backtest_record = BacktestResult(
+                backtest_type="program",
+                binding_id=request.binding_id,
+                user_id=binding.account.user_id if binding.account else None,
+                config=json.dumps({
+                    "signal_pool_ids": signal_pool_ids,
+                    "symbols": list(symbols),
+                    "scheduled_interval": scheduled_interval,
+                    "slippage_percent": request.slippage_percent,
+                    "fee_rate": request.fee_rate,
+                }),
+                start_time=config.start_time,
+                end_time=config.end_time,
+                initial_balance=config.initial_balance,
+                total_triggers=len(triggers),
+                status="running",
+            )
+            db.add(backtest_record)
+            db.commit()
+            db.refresh(backtest_record)
+
+            # Send init event with trigger count and backtest_id
+            yield f"data: {json.dumps({'type': 'init', 'total_triggers': len(triggers), 'backtest_id': backtest_record.id})}\n\n"
+            await asyncio.sleep(0.01)
+
+            # Phase 2: Run backtest with progress updates
+            async for event in _run_backtest_with_progress(engine, config, triggers, db, backtest_record.id):
+                yield event
+
+        except Exception as e:
+            if backtest_record:
+                backtest_record.status = "error"
+                backtest_record.error_message = str(e)
+                db.commit()
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+async def _run_backtest_with_progress(engine, config, triggers, db, backtest_id):
+    """
+    Run backtest event loop with progress updates and database logging.
+
+    Yields SSE events for progress and final results.
+    Records each trigger's decision to BacktestTriggerLog.
+    """
+    from backtest import VirtualAccount, ExecutionSimulator, HistoricalDataProvider
+    from backtest.models import BacktestTradeRecord
+    from program_trader.executor import SandboxExecutor
+    from program_trader.models import MarketData, Position
+    from datetime import datetime, timezone
+    import time
+
+    start_time = time.time()
+
+    # Initialize components
+    account = VirtualAccount(initial_balance=config.initial_balance)
+    simulator = ExecutionSimulator(
+        slippage_percent=config.slippage_percent,
+        fee_rate=config.fee_rate,
+    )
+    data_provider = HistoricalDataProvider(
+        db=engine.db,
+        symbols=config.symbols,
+        start_time_ms=config.start_time_ms,
+        end_time_ms=config.end_time_ms,
+    )
+    executor = SandboxExecutor(timeout_seconds=5)
+
+    trades = []
+    equity_curve = []
+    total = len(triggers)
+    progress_interval = max(1, total // 50)  # Update every 2%
+
+    # Use continuous index for trigger logs (not enumerate's i which may have gaps)
+    trigger_log_index = 0
+
+    for i, trigger in enumerate(triggers):
+        equity_before = account.equity
+
+        # Set current time and clear query log for this trigger
+        data_provider.set_current_time(trigger.timestamp)
+        data_provider.clear_query_log()
+
+        # Get current prices
+        prices = data_provider.get_current_prices(config.symbols)
+        if not prices:
+            continue
+
+        # Check TP/SL triggers and record them
+        tp_sl_trades = simulator.check_tp_sl_triggers(account, prices, trigger.timestamp)
+        for tp_sl_trade in tp_sl_trades:
+            trades.append(tp_sl_trade)
+            # Record TP/SL trigger as separate log entry
+            tp_sl_time = datetime.fromtimestamp(tp_sl_trade.exit_timestamp / 1000, tz=timezone.utc)
+            tp_sl_log = BacktestTriggerLog(
+                backtest_id=backtest_id,
+                trigger_index=trigger_log_index,  # Use continuous index
+                trigger_type=tp_sl_trade.exit_reason,  # "tp" or "sl"
+                trigger_time=tp_sl_time,
+                symbol=tp_sl_trade.symbol,
+                decision_type="program",
+                decision_action="close",
+                decision_symbol=tp_sl_trade.symbol,
+                decision_side=tp_sl_trade.side,
+                decision_size=tp_sl_trade.size,
+                decision_reason=tp_sl_trade.reason,
+                entry_price=tp_sl_trade.entry_price,
+                exit_price=tp_sl_trade.exit_price,
+                pnl=0,  # Will set realized_pnl instead
+                fee=tp_sl_trade.fee,
+                unrealized_pnl=0,
+                realized_pnl=tp_sl_trade.pnl,
+                equity_before=equity_before,
+                equity_after=account.equity,
+                decision_input=json.dumps({
+                    "trigger": tp_sl_trade.exit_reason.upper(),
+                    "entry_price": tp_sl_trade.entry_price,
+                    "exit_price": tp_sl_trade.exit_price,
+                }),
+                decision_output=None,
+            )
+            db.add(tp_sl_log)
+            equity_before = account.equity  # Update for next iteration
+
+        # Update equity
+        account.update_equity(prices)
+
+        # Determine trigger symbol
+        trigger_symbol = trigger.symbol if trigger.symbol else config.symbols[0]
+
+        # Build MarketData
+        market_data = engine._build_market_data(
+            account, data_provider, trigger, trigger_symbol
+        )
+
+        # Execute strategy
+        result = executor.execute(config.code, market_data, {})
+
+        # Prepare trigger log data
+        trigger_time = datetime.fromtimestamp(trigger.timestamp / 1000, tz=timezone.utc)
+        decision_action = "hold"
+        decision_symbol = trigger_symbol
+        decision_side = None
+        decision_size = None
+        decision_reason = ""
+        entry_price = prices.get(trigger_symbol, 0)
+        trade_fee = 0.0
+        trade_realized_pnl = 0.0
+        execution_error = None
+
+        # Build decision input snapshot (minimal for storage)
+        decision_input = {
+            "balance": account.balance,
+            "equity": account.equity,
+            "trigger_type": trigger.trigger_type,
+            "trigger_symbol": trigger_symbol,
+            "prices": prices,
+            "positions": {k: {"side": v.side, "size": v.size, "entry_price": v.entry_price}
+                         for k, v in account.positions.items()},
+        }
+
+        decision_output = None
+        trade = None
+
+        if result.success and result.decision:
+            decision = result.decision
+            symbol = decision.symbol or trigger_symbol
+            current_price = prices.get(symbol, 0)
+
+            decision_action = decision.operation
+            decision_symbol = symbol
+            decision_reason = decision.reason
+
+            # Build decision output
+            decision_output = decision.to_dict() if hasattr(decision, 'to_dict') else {
+                "operation": decision.operation,
+                "symbol": decision.symbol,
+                "reason": decision.reason,
+            }
+
+            if current_price > 0 and decision.operation != "hold":
+                signal_names = [
+                    s.get("signal_name", "") for s in (trigger.triggered_signals or [])
+                ]
+                trade = simulator.execute_decision(
+                    decision=decision,
+                    account=account,
+                    current_price=current_price,
+                    timestamp=trigger.timestamp,
+                    trigger_type=trigger.trigger_type,
+                    pool_name=trigger.pool_name,
+                    triggered_signals=signal_names,
+                )
+                if trade:
+                    trades.append(trade)
+                    decision_side = trade.side
+                    decision_size = trade.size
+                    entry_price = trade.entry_price
+                    trade_fee = trade.fee
+                    trade_realized_pnl = trade.pnl if trade.operation == "close" else 0
+        elif not result.success:
+            execution_error = result.error
+
+        # Update equity and record
+        account.update_equity(prices)
+        equity_after = account.equity
+
+        # Calculate current unrealized PnL for this symbol
+        current_unrealized_pnl = account.unrealized_pnl_total
+
+        equity_curve.append({
+            "timestamp": trigger.timestamp,
+            "equity": account.equity,
+            "balance": account.balance,
+        })
+
+        # Save trigger log to database
+        # Capture data queries and execution logs
+        data_queries = data_provider.get_query_log()
+        execution_logs = result.logs if result else []
+
+        trigger_log = BacktestTriggerLog(
+            backtest_id=backtest_id,
+            trigger_index=trigger_log_index,  # Use continuous index
+            trigger_type=trigger.trigger_type,
+            trigger_time=trigger_time,
+            symbol=trigger_symbol,
+            decision_type="program",
+            decision_action=decision_action,
+            decision_symbol=decision_symbol,
+            decision_side=decision_side,
+            decision_size=decision_size,
+            decision_reason=decision_reason,
+            entry_price=entry_price,
+            pnl=0,  # Deprecated, use realized_pnl instead
+            fee=trade_fee,
+            unrealized_pnl=current_unrealized_pnl,
+            realized_pnl=trade_realized_pnl,
+            equity_before=equity_before,
+            equity_after=equity_after,
+            decision_input=json.dumps(decision_input),
+            decision_output=json.dumps(decision_output) if decision_output else None,
+            data_queries=json.dumps(data_queries) if data_queries else None,
+            execution_logs=json.dumps(execution_logs) if execution_logs else None,
+            execution_error=execution_error,
+        )
+        db.add(trigger_log)
+
+        # Increment continuous index after saving
+        trigger_log_index += 1
+
+        # Commit periodically to avoid large transactions
+        if trigger_log_index % 100 == 0:
+            db.commit()
+
+        # Yield progress update periodically
+        if (i + 1) % progress_interval == 0 or i == total - 1:
+            yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total, 'equity': account.equity})}\n\n"
+            await asyncio.sleep(0.001)  # Allow other tasks
+
+    # Final commit for remaining logs
+    db.commit()
+
+    # Calculate final statistics
+    calc_result = engine._calculate_result(trades, equity_curve, triggers, account, config)
+    calc_result.execution_time_ms = (time.time() - start_time) * 1000
+
+    # Update backtest record with final results
+    backtest_record = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
+    if backtest_record:
+        backtest_record.final_equity = account.equity
+        backtest_record.total_pnl = calc_result.total_pnl
+        backtest_record.total_pnl_percent = calc_result.total_pnl_percent
+        backtest_record.max_drawdown = calc_result.max_drawdown
+        backtest_record.max_drawdown_percent = calc_result.max_drawdown_percent
+        backtest_record.total_trades = calc_result.total_trades
+        backtest_record.winning_trades = calc_result.winning_trades
+        backtest_record.losing_trades = calc_result.losing_trades
+        backtest_record.win_rate = calc_result.win_rate
+        backtest_record.profit_factor = calc_result.profit_factor
+        backtest_record.sharpe_ratio = calc_result.sharpe_ratio
+        backtest_record.equity_curve = json.dumps(equity_curve)
+        backtest_record.execution_time_ms = int(calc_result.execution_time_ms)
+        backtest_record.status = "completed"
+        backtest_record.completed_at = datetime.now(timezone.utc)
+        db.commit()
+
+    # Yield complete event with results
+    complete_data = {
+        "type": "complete",
+        "backtest_id": backtest_id,
+        "success": calc_result.success,
+        "total_pnl": calc_result.total_pnl,
+        "total_pnl_percent": calc_result.total_pnl_percent,
+        "max_drawdown": calc_result.max_drawdown,
+        "max_drawdown_percent": calc_result.max_drawdown_percent,
+        "sharpe_ratio": calc_result.sharpe_ratio,
+        "total_trades": calc_result.total_trades,
+        "winning_trades": calc_result.winning_trades,
+        "losing_trades": calc_result.losing_trades,
+        "win_rate": calc_result.win_rate,
+        "profit_factor": calc_result.profit_factor,
+        "avg_win": calc_result.avg_win,
+        "avg_loss": calc_result.avg_loss,
+        "largest_win": calc_result.largest_win,
+        "largest_loss": calc_result.largest_loss,
+        "total_triggers": calc_result.total_triggers,
+        "signal_triggers": calc_result.signal_triggers,
+        "scheduled_triggers": calc_result.scheduled_triggers,
+        "execution_time_ms": calc_result.execution_time_ms,
+        "equity_curve": calc_result.equity_curve,
+        "trades": [_trade_to_dict(t) for t in calc_result.trades],
+    }
+    yield f"data: {json.dumps(complete_data)}\n\n"
+
+
+def _trade_to_dict(trade):
+    """Convert BacktestTradeRecord to dict."""
+    return {
+        "timestamp": trade.timestamp,
+        "trigger_type": trade.trigger_type,
+        "symbol": trade.symbol,
+        "operation": trade.operation,
+        "side": trade.side,
+        "entry_price": trade.entry_price,
+        "size": trade.size,
+        "leverage": trade.leverage,
+        "exit_price": trade.exit_price,
+        "exit_timestamp": trade.exit_timestamp,
+        "exit_reason": trade.exit_reason,
+        "pnl": trade.pnl,
+        "pnl_percent": trade.pnl_percent,
+        "fee": trade.fee,
+        "reason": trade.reason,
+        "pool_name": trade.pool_name,
+        "triggered_signals": trade.triggered_signals,
+    }
+
+
+# ============================================================================
+# Backtest Detail Query APIs
+# ============================================================================
+
+@router.get("/backtest/history")
+def get_backtest_history(
+    binding_id: int = Query(..., description="Binding ID to get history for"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    """
+    Get backtest history for a specific binding.
+
+    Returns a list of past backtest results (summary only, no equity curve).
+    """
+    query = db.query(BacktestResult).filter(
+        BacktestResult.binding_id == binding_id,
+        BacktestResult.backtest_type == 'program'
+    ).order_by(BacktestResult.created_at.desc())
+
+    total = query.count()
+    backtests = query.offset(offset).limit(limit).all()
+
+    results = []
+    for bt in backtests:
+        config = bt.config
+        if isinstance(config, str):
+            config = json.loads(config)
+
+        results.append({
+            "id": bt.id,
+            "config": config,
+            "start_time": bt.start_time.isoformat() if bt.start_time else None,
+            "end_time": bt.end_time.isoformat() if bt.end_time else None,
+            "initial_balance": bt.initial_balance,
+            "final_equity": bt.final_equity,
+            "total_pnl": bt.total_pnl,
+            "total_pnl_percent": bt.total_pnl_percent,
+            "max_drawdown_percent": bt.max_drawdown_percent,
+            "total_triggers": bt.total_triggers,
+            "total_trades": bt.total_trades,
+            "win_rate": bt.win_rate,
+            "status": bt.status,
+            "created_at": bt.created_at.isoformat() if bt.created_at else None,
+        })
+
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "results": results
+    }
+
+
+@router.get("/backtest/{backtest_id}")
+def get_backtest_result(backtest_id: int, db: Session = Depends(get_db)):
+    """
+    Get backtest result summary by ID.
+
+    Returns the backtest result without trigger logs (use /triggers endpoint for logs).
+    """
+    backtest = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
+    if not backtest:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    # Parse equity_curve if stored as JSON string
+    equity_curve = backtest.equity_curve
+    if isinstance(equity_curve, str):
+        equity_curve = json.loads(equity_curve)
+
+    # Parse config if stored as JSON string
+    config = backtest.config
+    if isinstance(config, str):
+        config = json.loads(config)
+
+    return {
+        "id": backtest.id,
+        "backtest_type": backtest.backtest_type,
+        "binding_id": backtest.binding_id,
+        "prompt_id": backtest.prompt_id,
+        "user_id": backtest.user_id,
+        "config": config,
+        "start_time": backtest.start_time.isoformat() if backtest.start_time else None,
+        "end_time": backtest.end_time.isoformat() if backtest.end_time else None,
+        "initial_balance": backtest.initial_balance,
+        "final_equity": backtest.final_equity,
+        "total_pnl": backtest.total_pnl,
+        "total_pnl_percent": backtest.total_pnl_percent,
+        "max_drawdown": backtest.max_drawdown,
+        "max_drawdown_percent": backtest.max_drawdown_percent,
+        "total_triggers": backtest.total_triggers,
+        "total_trades": backtest.total_trades,
+        "winning_trades": backtest.winning_trades,
+        "losing_trades": backtest.losing_trades,
+        "win_rate": backtest.win_rate,
+        "profit_factor": backtest.profit_factor,
+        "sharpe_ratio": backtest.sharpe_ratio,
+        "equity_curve": equity_curve,
+        "execution_time_ms": backtest.execution_time_ms,
+        "status": backtest.status,
+        "error_message": backtest.error_message,
+        "created_at": backtest.created_at.isoformat() if backtest.created_at else None,
+        "completed_at": backtest.completed_at.isoformat() if backtest.completed_at else None,
+    }
+
+
+@router.get("/backtest/{backtest_id}/triggers")
+def get_backtest_triggers(
+    backtest_id: int,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    action_filter: Optional[str] = Query(None, description="Filter by action: buy, sell, close, hold"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get trigger logs for a backtest (summary list).
+
+    Returns paginated list of trigger logs without full decision_input/output.
+    Use /triggers/{trigger_id} for full details.
+    """
+    backtest = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
+    if not backtest:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    query = db.query(BacktestTriggerLog).filter(
+        BacktestTriggerLog.backtest_id == backtest_id
+    )
+
+    if action_filter:
+        query = query.filter(BacktestTriggerLog.decision_action == action_filter)
+
+    total = query.count()
+    triggers = query.order_by(BacktestTriggerLog.trigger_index).offset(offset).limit(limit).all()
+
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "triggers": [
+            {
+                "id": t.id,
+                "trigger_index": t.trigger_index,
+                "trigger_type": t.trigger_type,
+                "trigger_time": t.trigger_time.isoformat() if t.trigger_time else None,
+                "symbol": t.symbol,
+                "decision_action": t.decision_action,
+                "decision_symbol": t.decision_symbol,
+                "decision_side": t.decision_side,
+                "decision_size": t.decision_size,
+                "decision_reason": t.decision_reason,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "pnl": t.pnl,
+                "fee": t.fee,
+                "unrealized_pnl": t.unrealized_pnl,
+                "realized_pnl": t.realized_pnl,
+                "equity_before": t.equity_before,
+                "equity_after": t.equity_after,
+                "execution_error": t.execution_error,
+            }
+            for t in triggers
+        ]
+    }
+
+
+@router.get("/backtest/{backtest_id}/markers")
+def get_backtest_markers(backtest_id: int, db: Session = Depends(get_db)):
+    """
+    Get chart markers for a backtest.
+
+    Returns all non-HOLD triggers with minimal data for chart display.
+    """
+    backtest = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
+    if not backtest:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+
+    triggers = db.query(
+        BacktestTriggerLog.trigger_index,
+        BacktestTriggerLog.decision_action,
+        BacktestTriggerLog.trigger_type
+    ).filter(
+        BacktestTriggerLog.backtest_id == backtest_id,
+        BacktestTriggerLog.decision_action != 'hold'
+    ).order_by(BacktestTriggerLog.trigger_index).all()
+
+    return {
+        "total": len(triggers),
+        "markers": [
+            {
+                "index": t.trigger_index,
+                "action": t.decision_action,
+                "trigger_type": t.trigger_type
+            }
+            for t in triggers
+        ]
+    }
+
+
+@router.get("/backtest/trigger/{trigger_id}")
+def get_trigger_detail(trigger_id: int, db: Session = Depends(get_db)):
+    """
+    Get full details for a single trigger log.
+
+    Returns complete decision_input and decision_output for debugging.
+    """
+    trigger = db.query(BacktestTriggerLog).filter(BacktestTriggerLog.id == trigger_id).first()
+    if not trigger:
+        raise HTTPException(status_code=404, detail="Trigger log not found")
+
+    # Parse JSON fields
+    decision_input = trigger.decision_input
+    if isinstance(decision_input, str):
+        decision_input = json.loads(decision_input)
+
+    decision_output = trigger.decision_output
+    if isinstance(decision_output, str) and decision_output:
+        decision_output = json.loads(decision_output)
+
+    data_queries = trigger.data_queries
+    if isinstance(data_queries, str) and data_queries:
+        data_queries = json.loads(data_queries)
+
+    execution_logs = trigger.execution_logs
+    if isinstance(execution_logs, str) and execution_logs:
+        execution_logs = json.loads(execution_logs)
+
+    return {
+        "id": trigger.id,
+        "backtest_id": trigger.backtest_id,
+        "trigger_index": trigger.trigger_index,
+        "trigger_type": trigger.trigger_type,
+        "trigger_time": trigger.trigger_time.isoformat() if trigger.trigger_time else None,
+        "symbol": trigger.symbol,
+        "decision_type": trigger.decision_type,
+        "decision_action": trigger.decision_action,
+        "decision_symbol": trigger.decision_symbol,
+        "decision_side": trigger.decision_side,
+        "decision_size": trigger.decision_size,
+        "decision_reason": trigger.decision_reason,
+        "entry_price": trigger.entry_price,
+        "exit_price": trigger.exit_price,
+        "pnl": trigger.pnl,
+        "fee": trigger.fee,
+        "unrealized_pnl": trigger.unrealized_pnl,
+        "realized_pnl": trigger.realized_pnl,
+        "equity_before": trigger.equity_before,
+        "equity_after": trigger.equity_after,
+        "decision_input": decision_input,
+        "decision_output": decision_output,
+        "data_queries": data_queries,
+        "execution_logs": execution_logs,
+        "execution_error": trigger.execution_error,
+        "created_at": trigger.created_at.isoformat() if trigger.created_at else None,
+    }
