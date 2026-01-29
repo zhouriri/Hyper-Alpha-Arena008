@@ -39,6 +39,7 @@ import MobileModelChat from '@/components/mobile/MobileModelChat'
 import MobileDashboard from '@/components/mobile/MobileDashboard'
 import MobilePrograms from '@/components/mobile/MobilePrograms'
 import ProgramTrader from '@/components/program/ProgramTrader'
+import SettingsPage from '@/components/settings/SettingsPage'
 // Remove CallbackPage import - handle inline
 import { AIDecision, getAccounts, checkMainnetAccounts, approveBuilder, type UnauthorizedAccount } from '@/lib/api'
 import { AuthorizationModal } from '@/components/hyperliquid'
@@ -87,6 +88,7 @@ const PAGE_TITLES: Record<string, string> = {
   'klines': 'K-Line Charts',
   'premium-features': 'Premium Features',
   'model-chat': 'Model Chat',
+  'settings': 'Settings',
 }
 
 function App() {
@@ -723,6 +725,10 @@ function App() {
 
         {currentPage === 'model-chat' && (
           <MobileModelChat />
+        )}
+
+        {currentPage === 'settings' && (
+          <SettingsPage />
         )}
       </main>
     )

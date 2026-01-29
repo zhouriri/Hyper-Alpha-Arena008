@@ -28,6 +28,7 @@
     "language": "Language",
     "lastUpdate": "Last update",
     "details": "Details",
+    "collectionDaysHint": "Hyperliquid market flow data collected for {{days}} days",
     "more": "more",
     "saving": "Saving...",
     "loadMore": "Load More",
@@ -330,6 +331,7 @@
     "logsCount": "{{count}} logs",
     "loadMore": "Load More",
     "mainnetWarning": "Signal system analyzes Mainnet data only (testnet data unreliable)",
+    "collectionDaysHint": "Signal backtest relies on market flow data, collected for {{days}} days",
     "allSignalsTrigger": "All signals must trigger",
     "anySignalTriggers": "Any signal triggers",
     "loading": "Loading...",
@@ -803,7 +805,38 @@
     "globalDesc": "Settings that affect all traders",
     "samplingInterval": "Sampling Interval (seconds)",
     "samplingHint": "How often to collect price samples (default: 18s)",
-    "saveGlobalSettings": "Save Global Settings"
+    "saveGlobalSettings": "Save Global Settings",
+    "watchlistMoved": "Watchlist management has been moved to Settings.",
+    "currentWatchlist": "Current watchlist",
+    "goToSettings": "Go to Settings"
+  },
+  "settings": {
+    "language": "Language",
+    "languageDesc": "Select your preferred language",
+    "watchlist": "Watchlist",
+    "watchlistDesc": "Select symbols for market data collection and AI analysis",
+    "selectedCount": "Selected",
+    "maxSymbolsReached": "Maximum symbols reached",
+    "atLeastOneSymbol": "At least one symbol required",
+    "watchlistSaved": "Watchlist saved",
+    "saveWatchlist": "Save Watchlist",
+    "exchangeData": "Exchange Data",
+    "dataCollection": "Data Collection",
+    "dataCollectionDesc": "Market flow data storage statistics",
+    "currentStorage": "Current Storage",
+    "collectedSymbols": "Collected Symbols",
+    "retentionDays": "Retention Days",
+    "maxStorageEstimate": "Max Storage Estimate",
+    "setRetention": "Set Retention Period",
+    "days": "days",
+    "retentionRange": "Must be between 7 and 730 days",
+    "retentionSaved": "Retention period saved",
+    "retentionHint": "Data older than this will be automatically cleaned up (7-730 days)",
+    "dataCoverage": "Data Coverage",
+    "dataCoverageDesc": "Visual overview of collected data completeness",
+    "showLast": "Show last",
+    "noData": "No data available",
+    "noDataCollected": "No data collected yet"
   },
   "order": {
     "title": "Place Hyperliquid Order (Manual)",
@@ -1189,7 +1222,8 @@
     "history": "History",
     "noHistory": "No backtest history",
     "historyLimit": "Showing latest 30 records",
-    "runBacktestFirst": "Run backtest to see trigger details"
+    "runBacktestFirst": "Run backtest to see trigger details",
+    "collectionDaysHint": "Backtest signal triggers rely on market flow data, collected for {{days}} days"
   },
   "program": {
     "aiChat": {

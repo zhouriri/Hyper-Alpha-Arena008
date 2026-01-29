@@ -33,6 +33,7 @@
     "loadMore": "加载更多",
     "success": "成功",
     "failed": "失败",
+    "collectionDaysHint": "Hyperliquid 资金流数据已累计采集 {{days}} 天",
     "error": "错误",
     "keyboardHintCtrlEnter": "按 Ctrl+Enter（Mac 上为 Cmd+Enter）发送"
   },
@@ -252,6 +253,7 @@
     "logsCount": "共 {{count}} 条",
     "loadMore": "加载更多",
     "mainnetWarning": "信号系统仅分析主网数据（测试网数据不可靠）",
+    "collectionDaysHint": "信号回测依赖资金流数据，已累计采集 {{days}} 天",
     "allSignalsTrigger": "所有信号必须同时触发",
     "anySignalTriggers": "任一信号触发即可",
     "loading": "加载中...",
@@ -822,7 +824,38 @@
     "globalDesc": "影响所有交易员的设置",
     "samplingInterval": "采样间隔（秒）",
     "samplingHint": "价格采样频率（默认：18秒）",
-    "saveGlobalSettings": "保存全局设置"
+    "saveGlobalSettings": "保存全局设置",
+    "watchlistMoved": "监控列表管理已移至设置页面。",
+    "currentWatchlist": "当前监控列表",
+    "goToSettings": "前往设置"
+  },
+  "settings": {
+    "language": "语言",
+    "languageDesc": "选择您偏好的语言",
+    "watchlist": "交易对监控",
+    "watchlistDesc": "选择要监控和采集数据的交易对，用于AI分析",
+    "selectedCount": "已选",
+    "maxSymbolsReached": "已达最大数量",
+    "atLeastOneSymbol": "至少选择一个交易对",
+    "watchlistSaved": "监控列表已保存",
+    "saveWatchlist": "保存监控列表",
+    "exchangeData": "交易所数据",
+    "dataCollection": "数据采集",
+    "dataCollectionDesc": "市场数据存储统计",
+    "currentStorage": "当前存储",
+    "collectedSymbols": "已采集币种",
+    "retentionDays": "保留天数",
+    "maxStorageEstimate": "预计最大占用",
+    "setRetention": "设置保留期限",
+    "days": "天",
+    "retentionRange": "必须在 7 到 730 天之间",
+    "retentionSaved": "保留期限已保存",
+    "retentionHint": "超过此期限的数据将被自动删除（7-730 天）",
+    "dataCoverage": "数据覆盖",
+    "dataCoverageDesc": "已采集数据完整度的可视化概览",
+    "showLast": "显示最近",
+    "noData": "无数据",
+    "noDataCollected": "尚未采集数据"
   },
   "order": {
     "title": "手动下单（Hyperliquid）",
@@ -1208,7 +1241,8 @@
     "history": "历史记录",
     "noHistory": "暂无回测历史",
     "historyLimit": "仅显示最近 30 条记录",
-    "runBacktestFirst": "运行回测后查看触发详情"
+    "runBacktestFirst": "运行回测后查看触发详情",
+    "collectionDaysHint": "回测信号触发依赖资金流数据，已累计采集 {{days}} 天"
   },
   "program": {
     "aiChat": {

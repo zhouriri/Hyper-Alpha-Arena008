@@ -222,3 +222,24 @@ def update_retention_days(request: RetentionDaysRequest, db: Session = Depends(g
         logger.warning(f"Could not update collector retention: {e}")
 
     return RetentionDaysResponse(days=days)
+
+
+@router.get("/collection-days")
+def get_collection_days(db: Session = Depends(get_db)):
+    """Get total days of market flow data collection.
+    Calculated from earliest record timestamp to now.
+    """
+    try:
+        import time
+        query = text("SELECT MIN(timestamp) FROM market_trades_aggregated")
+        result = db.execute(query).scalar()
+
+        if not result:
+            return {"days": 0}
+
+        now_ms = int(time.time() * 1000)
+        days = (now_ms - result) / (24 * 60 * 60 * 1000)
+        return {"days": round(days, 1)}
+    except Exception as e:
+        logger.error(f"Failed to get collection days: {e}")
+        return {"days": 0}

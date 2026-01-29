@@ -501,54 +501,23 @@ export default function StrategyPanel({
             )}
           </TabsContent>
           <TabsContent value="watchlist" className="flex-1 overflow-y-auto space-y-4">
-            {watchlistLoading ? (
-              <div className="text-sm text-muted-foreground">{t('strategy.loadingWatchlist', 'Loading watchlist…')}</div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground uppercase tracking-wide">
-                  <span>{t('strategy.configureSymbols', 'Configure Hyperliquid symbols to monitor')}</span>
-                  <span className="text-foreground font-semibold">
-                    {watchlistCount} / {maxWatchlistSymbols}
-                  </span>
-                </div>
-                {watchlistError && <div className="text-sm text-destructive">{watchlistError}</div>}
-                {watchlistSuccess && <div className="text-sm text-emerald-600">{watchlistSuccess}</div>}
-                {availableWatchlistSymbols.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">{t('strategy.noSymbols', 'No tradable symbols available.')}</div>
-                ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {availableWatchlistSymbols.map((symbol) => {
-                      const active = watchlistSymbols.includes(symbol.symbol)
-                      return (
-                        <button
-                          type="button"
-                          key={symbol.symbol}
-                          onClick={() => toggleWatchlistSymbol(symbol.symbol)}
-                          className={`border rounded-md p-3 text-left transition-colors ${
-                            active ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-foreground'
-                          }`}
-                        >
-                          <div className="text-base font-semibold">{symbol.symbol}</div>
-                          <div className="text-[11px] text-muted-foreground">
-                            {symbol.name || t('strategy.untitled', 'Untitled')}
-                          </div>
-                          {symbol.type && (
-                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-1">{symbol.type}</div>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-                <Button
-                  onClick={handleSaveWatchlist}
-                  disabled={watchlistSaving || watchlistLoading}
-                  className="self-start"
-                >
-                  {watchlistSaving ? t('strategy.saving', 'Saving…') : t('strategy.saveWatchlist', 'Save Watchlist')}
-                </Button>
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="text-muted-foreground mb-4">
+                {t('strategy.watchlistMoved', 'Watchlist management has been moved to Settings.')}
               </div>
-            )}
+              <div className="text-sm text-muted-foreground mb-4">
+                {t('strategy.currentWatchlist', 'Current watchlist')}: {watchlistSymbols.join(', ') || '—'}
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  window.location.hash = 'settings'
+                  window.location.reload()
+                }}
+              >
+                {t('strategy.goToSettings', 'Go to Settings')}
+              </Button>
+            </div>
           </TabsContent>
           <TabsContent value="global" className="flex-1 overflow-y-auto space-y-4">
             {loading ? (

@@ -823,9 +823,28 @@ market_flow_collector = MarketFlowCollector()
 DATA_RETENTION_DAYS = 365
 
 
+def get_retention_days() -> int:
+    """Get retention days from SystemConfig, fallback to default"""
+    try:
+        from database.connection import SessionLocal
+        from database.models import SystemConfig
+        db = SessionLocal()
+        try:
+            config = db.query(SystemConfig).filter(
+                SystemConfig.key == "market_flow_retention_days"
+            ).first()
+            if config and config.value:
+                return int(config.value)
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return DATA_RETENTION_DAYS
+
+
 def cleanup_old_market_flow_data():
     """
-    Delete market flow data older than DATA_RETENTION_DAYS.
+    Delete market flow data older than configured retention days.
     This function is designed to be called by a scheduled task.
     """
     import time
@@ -836,7 +855,8 @@ def cleanup_old_market_flow_data():
         MarketAssetMetrics,
     )
 
-    cutoff_ms = int((time.time() - DATA_RETENTION_DAYS * 86400) * 1000)
+    retention_days = get_retention_days()
+    cutoff_ms = int((time.time() - retention_days * 86400) * 1000)
 
     db = SessionLocal()
     try:
@@ -868,7 +888,7 @@ def cleanup_old_market_flow_data():
             logger.info(
                 f"Market flow data cleanup: deleted {trades_deleted} trades, "
                 f"{orderbook_deleted} orderbook snapshots, {metrics_deleted} asset metrics "
-                f"(older than {DATA_RETENTION_DAYS} days)"
+                f"(older than {retention_days} days)"
             )
         else:
             logger.debug("Market flow data cleanup: no old records to delete")

@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import TradingViewChart from './TradingViewChart'
 import AIAnalysisPanel from './AIAnalysisPanel'
 import PacmanLoader from '../ui/pacman-loader'
+import { useCollectionDays } from '@/lib/useCollectionDays'
 
 interface KlinesViewProps {
   onAccountUpdated?: () => void
@@ -33,6 +34,7 @@ interface BackfillTask {
 
 export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
   const { t } = useTranslation()
+  const collectionDays = useCollectionDays()
   const [selectedSymbol, setSelectedSymbol] = useState<string>('BTC')
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1m')
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([])
@@ -342,6 +344,11 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
                   <span>⚠️</span>
                   <span>{t('kline.mainnetWarning', 'K-line analysis is only available for Mainnet environment')}</span>
                 </p>
+                {collectionDays !== null && collectionDays > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('common.collectionDaysHint', 'Hyperliquid market flow data collected for {{days}} days', { days: collectionDays })}
+                  </p>
+                )}
               </div>
 
               {selectedSymbol && renderBackfillButton()}

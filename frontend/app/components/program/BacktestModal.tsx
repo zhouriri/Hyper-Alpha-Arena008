@@ -33,6 +33,7 @@ import {
   ResponsiveContainer,
   Brush,
 } from 'recharts'
+import { useCollectionDays } from '@/lib/useCollectionDays'
 
 interface WalletInfo {
   environment: string
@@ -132,6 +133,7 @@ interface BacktestHistoryItem {
 
 export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProps) {
   const { t } = useTranslation()
+  const collectionDays = useCollectionDays()
 
   // History state
   const [historyList, setHistoryList] = useState<BacktestHistoryItem[]>([])
@@ -559,6 +561,11 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+            {collectionDays !== null && collectionDays > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {t('programTrader.collectionDaysHint', 'Backtest signal triggers rely on market flow data, collected for {{days}} days', { days: collectionDays })}
+              </span>
+            )}
           </div>
         </DialogHeader>
 

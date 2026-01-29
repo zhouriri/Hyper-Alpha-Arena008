@@ -28,6 +28,7 @@ import SignalPreviewChart from './SignalPreviewChart'
 import AiSignalChatModal from './AiSignalChatModal'
 import MarketRegimeConfig from './MarketRegimeConfig'
 import PacmanLoader from '../ui/pacman-loader'
+import { useCollectionDays } from '@/lib/useCollectionDays'
 
 // Types
 interface SignalDefinition {
@@ -290,6 +291,7 @@ const TIME_WINDOWS = [
 
 export default function SignalManager() {
   const { t } = useTranslation()
+  const collectionDays = useCollectionDays()
   const [signals, setSignals] = useState<SignalDefinition[]>([])
   const [pools, setPools] = useState<SignalPool[]>([])
   const [logs, setLogs] = useState<SignalTriggerLog[]>([])
@@ -1032,10 +1034,17 @@ export default function SignalManager() {
             <TabsTrigger value="logs" className="min-w-[120px]">{t('signals.tabs.logs', 'Trigger Logs')}</TabsTrigger>
             <TabsTrigger value="regime" className="min-w-[130px]">{t('signals.tabs.regime', 'Market Regime')}</TabsTrigger>
           </TabsList>
-          <p className="text-xs text-amber-600 font-medium flex items-center gap-1">
-            <span>⚠️</span>
-            <span>{t('signals.mainnetWarning', 'Signal system analyzes Mainnet data only (testnet data unreliable)')}</span>
-          </p>
+          <div className="text-xs">
+            <p className="text-amber-600 font-medium flex items-center gap-1">
+              <span>⚠️</span>
+              <span>{t('signals.mainnetWarning', 'Signal system analyzes Mainnet data only (testnet data unreliable)')}</span>
+            </p>
+            {collectionDays !== null && collectionDays > 0 && (
+              <p className="text-muted-foreground mt-0.5">
+                {t('signals.collectionDaysHint', 'Signal backtest relies on market flow data, collected for {{days}} days', { days: collectionDays })}
+              </p>
+            )}
+          </div>
           <div className="flex gap-2">
             <Button onClick={() => openSignalDialog()} size="sm">
               <Plus className="w-4 h-4 mr-2" />{t('signals.newSignal', 'New Signal')}
