@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
@@ -603,7 +603,10 @@ function ChatArea({
               <p className="text-xs mt-2">{t('program.aiChat.example')}</p>
             </div>
           )}
-          {messages.map((msg) => {
+          {/* Memoize message list rendering to prevent re-renders on input typing.
+              Without this, every keystroke re-renders all messages (including expensive
+              ReactMarkdown parsing), causing noticeable input lag with long conversations. */}
+          {useMemo(() => messages.map((msg) => {
             const compressionPoint = compressionPoints.find(cp => cp.message_id === msg.id)
             return (
               <div key={msg.id}>
@@ -729,7 +732,7 @@ function ChatArea({
             )}
           </div>
         )
-      })}
+      }), [messages, compressionPoints, loading])}
           <div ref={messagesEndRef} />
         </div>
       </ScrollArea>

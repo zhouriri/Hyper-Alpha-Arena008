@@ -4,7 +4,7 @@
  * Center: Chat area
  * Right: Config panel
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -791,7 +791,11 @@ export default function HyperAiPage() {
 }
 
 // Message bubble component with avatar, markdown, tool calls, and interrupt recovery
-function MessageBubble({
+// Wrapped with React.memo to prevent re-rendering when parent state (e.g. inputValue)
+// changes but message props remain the same. Without memo, every keystroke in the
+// textarea triggers re-render of ALL message bubbles (including expensive ReactMarkdown),
+// causing noticeable input lag when conversation history is long.
+const MessageBubble = memo(function MessageBubble({
   message,
   onContinue,
   t
@@ -928,4 +932,4 @@ function MessageBubble({
       </div>
     </div>
   )
-}
+})
