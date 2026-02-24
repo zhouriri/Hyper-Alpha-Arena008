@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 # Tool definitions in OpenAI format
+# IMPORTANT: When adding/removing/modifying tools, you MUST also update:
+#   1. The JSON schema definition below (this list)
+#   2. The execute_xxx() implementation function
+#   3. The execute_hyper_ai_tool() dispatcher at the bottom of this file
+#   4. The system prompt: backend/config/hyper_ai_system_prompt.md (Available Tools section)
 HYPER_AI_TOOLS = [
     {
         "type": "function",
@@ -115,7 +120,8 @@ HYPER_AI_TOOLS = [
                 "type": "object",
                 "properties": {
                     "symbol": {"type": "string", "description": "Trading symbol"},
-                    "period": {"type": "string", "enum": ["1m", "5m", "15m", "1h", "4h"], "description": "Time period (default: 1h)"}
+                    "period": {"type": "string", "enum": ["1m", "5m", "15m", "1h", "4h"], "description": "Time period (default: 1h)"},
+                    "exchange": {"type": "string", "enum": ["hyperliquid", "binance"], "description": "Exchange (default: hyperliquid)"}
                 },
                 "required": ["symbol"]
             }
@@ -258,6 +264,109 @@ HYPER_AI_TOOLS = [
                     "api_key": {"type": "string", "description": "LLM API key"}
                 },
                 "required": ["name", "model", "base_url", "api_key"]
+            }
+        }
+    },
+    # --- Query Tools: list resources ---
+    {
+        "type": "function",
+        "function": {
+            "name": "list_traders",
+            "description": "List all AI Traders with bindings, strategies, wallet and trading status. Pass trader_id to get one trader's full detail.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trader_id": {"type": "integer", "description": "Optional: specific AI Trader ID for detail view"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_signal_pools",
+            "description": "List all signal pools with IDs, symbols, exchange, and trigger conditions. Pass pool_id to get one pool's full detail.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pool_id": {"type": "integer", "description": "Optional: specific signal pool ID for detail view"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_strategies",
+            "description": "List all trading prompts and programs with IDs, names, and binding status. Pass strategy_id + strategy_type to get full content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "strategy_id": {"type": "integer", "description": "Optional: specific strategy ID for detail view"},
+                    "strategy_type": {"type": "string", "enum": ["prompt", "program"], "description": "Required when strategy_id is provided"}
+                },
+                "required": []
+            }
+        }
+    },
+    # --- Binding Tools: assemble components ---
+    {
+        "type": "function",
+        "function": {
+            "name": "bind_prompt_to_trader",
+            "description": "Bind a prompt template to an AI Trader (one-to-one, replaces existing binding).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trader_id": {"type": "integer", "description": "AI Trader ID"},
+                    "prompt_id": {"type": "integer", "description": "Prompt template ID to bind"}
+                },
+                "required": ["trader_id", "prompt_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bind_program_to_trader",
+            "description": "Create a program binding for an AI Trader with trigger config (many-to-many).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trader_id": {"type": "integer", "description": "AI Trader ID"},
+                    "program_id": {"type": "integer", "description": "Trading program ID"},
+                    "signal_pool_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Signal pool IDs for triggering"
+                    },
+                    "trigger_interval": {"type": "integer", "description": "Scheduled trigger interval in seconds (default: 300)"},
+                    "is_active": {"type": "boolean", "description": "Whether binding is active (default: true)"}
+                },
+                "required": ["trader_id", "program_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_trader_strategy",
+            "description": "Update trigger configuration for a Prompt-based AI Trader (signal pools, scheduled trigger, interval).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trader_id": {"type": "integer", "description": "AI Trader ID"},
+                    "signal_pool_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Signal pool IDs to bind"
+                    },
+                    "scheduled_trigger_enabled": {"type": "boolean", "description": "Enable scheduled trigger"},
+                    "trigger_interval": {"type": "integer", "description": "Trigger interval in seconds"}
+                },
+                "required": ["trader_id"]
             }
         }
     }
@@ -536,18 +645,19 @@ def execute_get_klines(db: Session, symbol: str, period: str = "1h", limit: int 
         return json.dumps({"error": str(e)})
 
 
-def execute_get_market_regime(db: Session, symbol: str, period: str = "1h") -> str:
+def execute_get_market_regime(db: Session, symbol: str, period: str = "1h", exchange: str = "hyperliquid") -> str:
     """Get market regime classification for a symbol."""
     try:
         from program_trader.data_provider import DataProvider
 
-        data_provider = DataProvider(db=db, account_id=0, environment="mainnet", exchange="hyperliquid")
+        data_provider = DataProvider(db=db, account_id=0, environment="mainnet", exchange=exchange)
         regime = data_provider.get_regime(symbol.upper(), period)
 
         if regime:
             return json.dumps({
                 "symbol": symbol.upper(),
                 "period": period,
+                "exchange": exchange,
                 "regime": regime.regime,
                 "confidence": regime.conf
             }, indent=2)
@@ -555,6 +665,7 @@ def execute_get_market_regime(db: Session, symbol: str, period: str = "1h") -> s
             return json.dumps({
                 "symbol": symbol.upper(),
                 "period": period,
+                "exchange": exchange,
                 "regime": "unknown",
                 "confidence": 0,
                 "note": "Unable to determine market regime"
@@ -1027,6 +1138,418 @@ def execute_create_ai_trader(
 
 
 # =============================================================================
+# Query Tools: list resources
+# =============================================================================
+
+def execute_list_traders(db: Session, trader_id: int = None) -> str:
+    """List all AI Traders with bindings, wallet status, and trading status.
+    Pass trader_id to get a single trader's detail."""
+    from database.models import (
+        Account, HyperliquidWallet, BinanceWallet,
+        AccountProgramBinding, AccountPromptBinding,
+        TradingProgram, PromptTemplate
+    )
+
+    try:
+        query = db.query(Account).filter(
+            Account.is_active == "true",
+            Account.account_type == "AI"
+        )
+        if trader_id:
+            query = query.filter(Account.id == trader_id)
+        accounts = query.all()
+        if trader_id and not accounts:
+            return json.dumps({"error": f"AI Trader {trader_id} not found"})
+
+        traders = []
+        for acc in accounts:
+            # Wallet info
+            hl_wallets = db.query(HyperliquidWallet).filter(
+                HyperliquidWallet.account_id == acc.id
+            ).all()
+            bn_wallets = db.query(BinanceWallet).filter(
+                BinanceWallet.account_id == acc.id
+            ).all()
+
+            wallet_info = []
+            for w in hl_wallets:
+                wallet_info.append({
+                    "exchange": "hyperliquid",
+                    "environment": w.environment
+                })
+            for w in bn_wallets:
+                wallet_info.append({
+                    "exchange": "binance",
+                    "environment": w.environment
+                })
+
+            # Prompt binding
+            prompt_binding = None
+            pb = db.query(AccountPromptBinding).filter(
+                AccountPromptBinding.account_id == acc.id
+            ).first()
+            if pb:
+                tpl = db.get(PromptTemplate, pb.prompt_template_id)
+                prompt_binding = {
+                    "prompt_id": pb.prompt_template_id,
+                    "prompt_name": tpl.name if tpl else "Unknown"
+                }
+
+            # Program bindings
+            prog_bindings = db.query(AccountProgramBinding).filter(
+                AccountProgramBinding.account_id == acc.id
+            ).all()
+            program_bindings = []
+            for pgb in prog_bindings:
+                prog = db.get(TradingProgram, pgb.program_id)
+                pool_ids = json.loads(pgb.signal_pool_ids) if pgb.signal_pool_ids else []
+                program_bindings.append({
+                    "binding_id": pgb.id,
+                    "program_id": pgb.program_id,
+                    "program_name": prog.name if prog else "Unknown",
+                    "signal_pool_ids": pool_ids,
+                    "trigger_interval": pgb.trigger_interval,
+                    "is_active": pgb.is_active
+                })
+
+            traders.append({
+                "trader_id": acc.id,
+                "name": acc.name,
+                "model": acc.model,
+                "auto_trading_enabled": acc.auto_trading_enabled == "true",
+                "wallets": wallet_info,
+                "prompt_binding": prompt_binding,
+                "program_bindings": program_bindings
+            })
+
+        return json.dumps({"traders": traders, "count": len(traders)}, indent=2)
+
+    except Exception as e:
+        logger.error(f"[list_traders] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_list_signal_pools(db: Session, pool_id: int = None) -> str:
+    """List all signal pools. Pass pool_id for single pool detail."""
+    from database.models import SignalPool, SignalDefinition
+
+    try:
+        query = db.query(SignalPool)
+        if pool_id:
+            query = query.filter(SignalPool.id == pool_id)
+        pools = query.all()
+        if pool_id and not pools:
+            return json.dumps({"error": f"Signal pool {pool_id} not found"})
+
+        result = []
+        for pool in pools:
+            # Parse signal_ids
+            signal_ids = []
+            if pool.signal_ids:
+                try:
+                    raw = pool.signal_ids
+                    signal_ids = json.loads(raw) if isinstance(raw, str) else raw
+                except Exception:
+                    signal_ids = []
+
+            # Parse symbols
+            symbols = []
+            if pool.symbols:
+                try:
+                    raw = pool.symbols
+                    symbols = json.loads(raw) if isinstance(raw, str) else raw
+                except Exception:
+                    symbols = []
+
+            # Get signal details from trigger_condition
+            signals = []
+            for sid in signal_ids:
+                sig = db.query(SignalDefinition).filter(
+                    SignalDefinition.id == sid
+                ).first()
+                if sig:
+                    cond = {}
+                    if sig.trigger_condition:
+                        try:
+                            raw = sig.trigger_condition
+                            cond = json.loads(raw) if isinstance(raw, str) else raw
+                        except Exception:
+                            cond = {"raw": sig.trigger_condition}
+                    signals.append({
+                        "signal_id": sig.id,
+                        "signal_name": sig.signal_name,
+                        "trigger_condition": cond,
+                        "enabled": sig.enabled
+                    })
+
+            result.append({
+                "pool_id": pool.id,
+                "name": pool.pool_name,
+                "symbols": symbols,
+                "exchange": pool.exchange or "hyperliquid",
+                "logic": pool.logic or "OR",
+                "enabled": pool.enabled,
+                "signals": signals
+            })
+
+        return json.dumps({"signal_pools": result, "count": len(result)}, indent=2)
+
+    except Exception as e:
+        logger.error(f"[list_signal_pools] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_list_strategies(db: Session, strategy_id: int = None, strategy_type: str = None) -> str:
+    """List all prompts and programs with binding status.
+    Pass strategy_id + strategy_type to get full content of a specific strategy."""
+    from database.models import (
+        PromptTemplate, TradingProgram,
+        AccountProgramBinding, AccountPromptBinding, Account
+    )
+
+    try:
+        # Single strategy detail mode
+        if strategy_id and strategy_type:
+            if strategy_type == "prompt":
+                tpl = db.query(PromptTemplate).filter(
+                    PromptTemplate.id == strategy_id,
+                    PromptTemplate.is_deleted == "false"
+                ).first()
+                if not tpl:
+                    return json.dumps({"error": f"Prompt {strategy_id} not found"})
+                bindings = db.query(AccountPromptBinding).filter(
+                    AccountPromptBinding.prompt_template_id == tpl.id
+                ).all()
+                bound_traders = []
+                for b in bindings:
+                    acc = db.get(Account, b.account_id)
+                    if acc:
+                        bound_traders.append({"trader_id": acc.id, "trader_name": acc.name})
+                return json.dumps({
+                    "prompt_id": tpl.id,
+                    "name": tpl.name,
+                    "description": getattr(tpl, "description", None),
+                    "template_text": tpl.template_text,
+                    "bound_traders": bound_traders
+                }, indent=2)
+            elif strategy_type == "program":
+                prog = db.query(TradingProgram).filter(
+                    TradingProgram.id == strategy_id
+                ).first()
+                if not prog:
+                    return json.dumps({"error": f"Program {strategy_id} not found"})
+                bindings = db.query(AccountProgramBinding).filter(
+                    AccountProgramBinding.program_id == prog.id
+                ).all()
+                bound_traders = []
+                for b in bindings:
+                    acc = db.get(Account, b.account_id)
+                    if acc:
+                        bound_traders.append({
+                            "trader_id": acc.id, "trader_name": acc.name,
+                            "is_active": b.is_active
+                        })
+                return json.dumps({
+                    "program_id": prog.id,
+                    "name": prog.name,
+                    "description": prog.description,
+                    "code": prog.code,
+                    "bound_traders": bound_traders
+                }, indent=2)
+
+        # List all mode (original behavior)
+        # Prompts
+        templates = db.query(PromptTemplate).filter(
+            PromptTemplate.is_deleted == "false"
+        ).all()
+        prompts = []
+        for tpl in templates:
+            bindings = db.query(AccountPromptBinding).filter(
+                AccountPromptBinding.prompt_template_id == tpl.id
+            ).all()
+            bound_traders = []
+            for b in bindings:
+                acc = db.get(Account, b.account_id)
+                if acc:
+                    bound_traders.append({"trader_id": acc.id, "trader_name": acc.name})
+            prompts.append({
+                "prompt_id": tpl.id,
+                "name": tpl.name,
+                "description": getattr(tpl, "description", None),
+                "bound_traders": bound_traders
+            })
+
+        # Programs
+        programs_db = db.query(TradingProgram).all()
+        programs = []
+        for prog in programs_db:
+            bindings = db.query(AccountProgramBinding).filter(
+                AccountProgramBinding.program_id == prog.id
+            ).all()
+            bound_traders = []
+            for b in bindings:
+                acc = db.get(Account, b.account_id)
+                if acc:
+                    bound_traders.append({
+                        "trader_id": acc.id,
+                        "trader_name": acc.name,
+                        "is_active": b.is_active
+                    })
+            programs.append({
+                "program_id": prog.id,
+                "name": prog.name,
+                "description": prog.description,
+                "bound_traders": bound_traders
+            })
+
+        return json.dumps({
+            "prompts": prompts,
+            "programs": programs,
+            "prompt_count": len(prompts),
+            "program_count": len(programs)
+        }, indent=2)
+
+    except Exception as e:
+        logger.error(f"[list_strategies] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+# =============================================================================
+# Binding Tools: assemble components
+# =============================================================================
+
+def execute_bind_prompt_to_trader(db: Session, trader_id: int, prompt_id: int) -> str:
+    """Bind a prompt template to an AI Trader. Reuses prompt_repo.upsert_binding."""
+    from database.models import Account, PromptTemplate
+    from repositories import prompt_repo
+
+    try:
+        account = db.query(Account).filter(Account.id == trader_id).first()
+        if not account:
+            return json.dumps({"error": f"AI Trader {trader_id} not found"})
+
+        template = db.get(PromptTemplate, prompt_id)
+        if not template:
+            return json.dumps({"error": f"Prompt template {prompt_id} not found"})
+
+        binding = prompt_repo.upsert_binding(
+            db,
+            account_id=trader_id,
+            prompt_template_id=prompt_id,
+            updated_by="hyper_ai"
+        )
+
+        return json.dumps({
+            "success": True,
+            "binding_id": binding.id,
+            "trader_id": trader_id,
+            "trader_name": account.name,
+            "prompt_id": prompt_id,
+            "prompt_name": template.name
+        }, indent=2)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[bind_prompt_to_trader] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_bind_program_to_trader(
+    db: Session, trader_id: int, program_id: int,
+    signal_pool_ids: list = None, trigger_interval: int = 300,
+    is_active: bool = True
+) -> str:
+    """Create a program binding for an AI Trader. Reuses AccountProgramBinding model."""
+    from database.models import Account, TradingProgram, AccountProgramBinding
+
+    try:
+        account = db.query(Account).filter(Account.id == trader_id).first()
+        if not account:
+            return json.dumps({"error": f"AI Trader {trader_id} not found"})
+
+        program = db.get(TradingProgram, program_id)
+        if not program:
+            return json.dumps({"error": f"Program {program_id} not found"})
+
+        # Check duplicate
+        existing = db.query(AccountProgramBinding).filter(
+            AccountProgramBinding.account_id == trader_id,
+            AccountProgramBinding.program_id == program_id
+        ).first()
+        if existing:
+            return json.dumps({
+                "error": f"Binding already exists (binding_id={existing.id})",
+                "binding_id": existing.id
+            })
+
+        binding = AccountProgramBinding(
+            account_id=trader_id,
+            program_id=program_id,
+            signal_pool_ids=json.dumps(signal_pool_ids) if signal_pool_ids else None,
+            trigger_interval=trigger_interval,
+            is_active=is_active
+        )
+        db.add(binding)
+        db.commit()
+        db.refresh(binding)
+
+        return json.dumps({
+            "success": True,
+            "binding_id": binding.id,
+            "trader_id": trader_id,
+            "trader_name": account.name,
+            "program_id": program_id,
+            "program_name": program.name,
+            "signal_pool_ids": signal_pool_ids or [],
+            "trigger_interval": trigger_interval,
+            "is_active": is_active
+        }, indent=2)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[bind_program_to_trader] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_update_trader_strategy(
+    db: Session, trader_id: int,
+    signal_pool_ids: list = None,
+    scheduled_trigger_enabled: bool = None,
+    trigger_interval: int = None
+) -> str:
+    """Update trigger config for a Prompt-based AI Trader. Reuses upsert_strategy."""
+    from database.models import Account
+    from repositories.strategy_repo import upsert_strategy
+
+    try:
+        account = db.query(Account).filter(Account.id == trader_id).first()
+        if not account:
+            return json.dumps({"error": f"AI Trader {trader_id} not found"})
+
+        strategy = upsert_strategy(
+            db,
+            account_id=trader_id,
+            signal_pool_ids=signal_pool_ids,
+            scheduled_trigger_enabled=scheduled_trigger_enabled,
+            trigger_interval=trigger_interval
+        )
+
+        return json.dumps({
+            "success": True,
+            "trader_id": trader_id,
+            "trader_name": account.name,
+            "signal_pool_ids": signal_pool_ids,
+            "scheduled_trigger_enabled": scheduled_trigger_enabled,
+            "trigger_interval": trigger_interval
+        }, indent=2)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[update_trader_strategy] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+# =============================================================================
 # Tool Dispatcher
 # =============================================================================
 
@@ -1063,7 +1586,8 @@ def execute_hyper_ai_tool(db: Session, tool_name: str, arguments: Dict[str, Any]
             return execute_get_market_regime(
                 db,
                 symbol=arguments.get("symbol", "BTC"),
-                period=arguments.get("period", "1h")
+                period=arguments.get("period", "1h"),
+                exchange=arguments.get("exchange", "hyperliquid")
             )
 
         elif tool_name == "get_market_flow":
@@ -1124,6 +1648,47 @@ def execute_hyper_ai_tool(db: Session, tool_name: str, arguments: Dict[str, Any]
                 model=arguments.get("model"),
                 base_url=arguments.get("base_url"),
                 api_key=arguments.get("api_key")
+            )
+
+        # --- Query tools: list resources ---
+        elif tool_name == "list_traders":
+            return execute_list_traders(db, trader_id=arguments.get("trader_id"))
+
+        elif tool_name == "list_signal_pools":
+            return execute_list_signal_pools(db, pool_id=arguments.get("pool_id"))
+
+        elif tool_name == "list_strategies":
+            return execute_list_strategies(
+                db,
+                strategy_id=arguments.get("strategy_id"),
+                strategy_type=arguments.get("strategy_type")
+            )
+
+        # --- Binding tools: assemble components ---
+        elif tool_name == "bind_prompt_to_trader":
+            return execute_bind_prompt_to_trader(
+                db,
+                trader_id=arguments.get("trader_id"),
+                prompt_id=arguments.get("prompt_id")
+            )
+
+        elif tool_name == "bind_program_to_trader":
+            return execute_bind_program_to_trader(
+                db,
+                trader_id=arguments.get("trader_id"),
+                program_id=arguments.get("program_id"),
+                signal_pool_ids=arguments.get("signal_pool_ids"),
+                trigger_interval=arguments.get("trigger_interval", 300),
+                is_active=arguments.get("is_active", True)
+            )
+
+        elif tool_name == "update_trader_strategy":
+            return execute_update_trader_strategy(
+                db,
+                trader_id=arguments.get("trader_id"),
+                signal_pool_ids=arguments.get("signal_pool_ids"),
+                scheduled_trigger_enabled=arguments.get("scheduled_trigger_enabled"),
+                trigger_interval=arguments.get("trigger_interval")
             )
 
         # Sub-agent tools are handled directly in hyper_ai_service.py main loop

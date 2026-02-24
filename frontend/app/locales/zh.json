@@ -18,6 +18,7 @@
     "disabled": "已禁用",
     "yes": "是",
     "no": "否",
+    "soon": "即将",
     "all": "全部",
     "none": "无",
     "notAvailable": "暂未开放",
@@ -1421,6 +1422,9 @@
     "configTitle": "Hyper AI 配置",
     "skills": "技能",
     "skillsComingSoon": "即将推出...",
+    "integrations": "集成",
+    "telegramBot": "Telegram 机器人",
+    "discordBot": "Discord 机器人",
     "memory": {
       "title": "Hyper AI 的记忆",
       "button": "记忆",

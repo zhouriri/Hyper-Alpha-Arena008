@@ -10,6 +10,7 @@
 [![Hyperliquid](https://img.shields.io/badge/Hyperliquid-Supported-00D395?style=flat&logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMTQ0IiBoZWlnaHQ9IjE0NCIgdmlld0JveD0iMCAwIDE0NCAxNDQiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHBhdGggZD0iTTE0NCA3MS42OTkxQzE0NCAxMTkuMzA2IDExNC44NjYgMTM0LjU4MiA5OS41MTU2IDEyMC45OEM4Ni44ODA0IDEwOS44ODkgODMuMTIxMSA4Ni40NTIxIDY0LjExNiA4NC4wNDU2QzM5Ljk5NDIgODEuMDExMyAzNy45MDU3IDExMy4xMzMgMjIuMDMzNCAxMTMuMTMzQzMuNTUwNCAxMTMuMTMzIDAgODYuMjQyOCAwIDcyLjQzMTVDMCA1OC4zMDYzIDMuOTY4MDkgMzkuMDU0MiAxOS43MzYgMzkuMDU0MkMzOC4xMTQ2IDM5LjA1NDIgMzkuMTU4OCA2Ni41NzIyIDYyLjEzMiA2NS4xMDczQzg1LjAwMDcgNjMuNTM3OSA4NS40MTg0IDM0Ljg2ODkgMTAwLjI0NyAyMi42MjcxQzExMy4xOTUgMTIuMDU5MyAxNDQgMjMuNDY0MSAxNDQgNzEuNjk5MVoiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPgo=)](https://hyperliquid.xyz)
 [![Binance](https://img.shields.io/badge/Binance-Supported-F0B90B?style=flat&logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMTQ0IiBoZWlnaHQ9IjE0NCIgdmlld0JveD0iMTI2IDEyNiA3NzIgNzcyIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogIDxwYXRoIGQ9Ik02NDMuNTQxMzMzIDU2Ni42MTMzMzNsNzcuMjY5MzM0IDc3LjIyNjY2Ny0yMDkuMTUyIDIwOS4xNTItMjA5LjEwOTMzNC0yMDkuMTUyIDc3LjI2OTMzNC03Ny4yMjY2NjcgMTMxLjg0IDEzMi41MjI2NjcgMTMxLjg0LTEzMi41NjUzMzN6IG0xMzEuODgyNjY3LTEzMS45MjUzMzNMODUzLjMzMzMzMyA1MTJsLTc3LjIyNjY2NiA3Ny4yMjY2NjdMNjk4LjgzNzMzMyA1MTJsNzYuNTg2NjY3LTc3LjIyNjY2N3ogbS0yNjMuNzIyNjY3IDBsNzcuMjI2NjY3IDc2LjU4NjY2Ny03Ny4yNjkzMzMgNzcuMjY5MzMzTDQzNC40MzIgNTEybDc3LjIyNjY2Ny03Ny4yMjY2Njd6IG0tMjYzLjc2NTMzMyAwTDMyNC41NjUzMzMgNTEybC03Ni41ODY2NjYgNzYuNTg2NjY3TDE3MC42NjY2NjcgNTExLjk1NzMzM2w3Ny4yMjY2NjYtNzcuMjI2NjY2eiBtMjYzLjc2NTMzMy0yNjMuNzY1MzMzbDIwOS4xNTIgMjA4LjQ2OTMzMy03Ny4zMTIgNzcuMjI2NjY3LTEzMS44NC0xMzEuODQtMTMxLjg0IDEzMi41MjI2NjYtNzcuMzEyLTc3LjIyNjY2NiAyMDkuMTUyLTIwOS4xNTJ6IiBmaWxsPSJ3aGl0ZSIvPgo8L3N2Zz4K)](https://binance.com)
 [![Twitter](https://img.shields.io/badge/Twitter-@GptHammer3309-1DA1F2?style=flat&logo=twitter&logoColor=white)](https://x.com/GptHammer3309)
+[![Discord](https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/9Pr5Uz2JvV)
 [![English](https://img.shields.io/badge/Lang-English-blue)](https://www.akooi.com/docs/)
 [![中文](https://img.shields.io/badge/语言-中文-red)](https://www.akooi.com/docs/zh/)
 
@@ -56,6 +57,20 @@ Hyper Alpha Arena is a production-ready AI trading platform where Large Language
 **Multi-Model LLM Support** - Compatible with OpenAI API models (GPT-5, Claude, Deepseek, etc.). Multi-wallet architecture with independent testnet/mainnet configurations.
 
 **Program Trader** - Define trading rules with Python code. Backtest strategies on historical data to validate profitability before going live. AI assistant helps write and optimize code through conversation.
+
+### AI Agent Architecture
+
+What sets Hyper Alpha Arena apart is its multi-agent AI system. Instead of a single chatbot, five specialized AI agents collaborate to cover the full trading workflow:
+
+| Agent | Role |
+|-------|------|
+| **Hyper AI** | Central coordinator with tool-use capabilities—queries market data, analyzes positions, and orchestrates other agents |
+| **Signal AI** | Designs market flow signal conditions through conversation (CVD, OI, funding rate triggers) |
+| **Prompt AI** | Crafts and refines AI Trader strategy prompts with real-time variable preview |
+| **Program AI** | Writes, debugs, and backtests Python trading strategies for Program Trader |
+| **Attribution AI** | Diagnoses strategy performance—identifies weaknesses and suggests optimizations |
+
+Each agent has deep context about its domain and access to relevant tools. Hyper AI can call market data APIs, check positions, and retrieve kline data in real-time—turning natural conversation into actionable trading intelligence.
 
 ## Screenshots
 
@@ -206,8 +221,8 @@ Please star and fork this repository to stay updated with development progress.
 - Latest updates on Hyper Alpha Arena development
 - AI trading insights and strategy discussions
 
-**💬 Telegram**: [@hammergpt](https://t.me/hammergpt)
-- Direct contact for technical support
+**💬 Discord**: [Join our community](https://discord.gg/9Pr5Uz2JvV)
+- Technical support and discussions
 - Bug reports and feature requests
 
 **📝 GitHub Issues**: For bug tracking and feature requests, please use [GitHub Issues](https://github.com/HammerGPT/Hyper-Alpha-Arena/issues).
@@ -220,8 +235,8 @@ Please star and fork this repository to stay updated with development progress.
 - 产品更新动态
 - AI 交易策略讨论
 
-**💬 Telegram**: [@hammergpt](https://t.me/hammergpt)
-- 技术支持直接联系
+**💬 Discord**: [加入社区](https://discord.gg/9Pr5Uz2JvV)
+- 技术支持与讨论
 - Bug 反馈和功能建议
 
 **📝 GitHub Issues**: Bug 追踪和功能请求请使用 [GitHub Issues](https://github.com/HammerGPT/Hyper-Alpha-Arena/issues)。

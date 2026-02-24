@@ -18,6 +18,7 @@
     "disabled": "Disabled",
     "yes": "Yes",
     "no": "No",
+    "soon": "Soon",
     "all": "All",
     "none": "None",
     "notAvailable": "N/A",
@@ -1402,6 +1403,9 @@
     "configTitle": "Hyper AI Config",
     "skills": "Skills",
     "skillsComingSoon": "Coming soon...",
+    "integrations": "Integrations",
+    "telegramBot": "Telegram Bot",
+    "discordBot": "Discord Bot",
     "memory": {
       "title": "What Hyper AI Remembered",
       "button": "Memory",

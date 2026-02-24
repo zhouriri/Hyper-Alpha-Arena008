@@ -62,6 +62,10 @@ The sub-agent has access to variables reference and can preview prompts with rea
                     "conversation_id": {
                         "type": "integer",
                         "description": "Optional: Continue a previous Prompt AI conversation"
+                    },
+                    "prompt_id": {
+                        "type": "integer",
+                        "description": "Optional: Prompt ID if editing existing prompt"
                     }
                 },
                 "required": ["task"]
@@ -287,6 +291,7 @@ def execute_call_prompt_ai(
     db: Session,
     task: str,
     conversation_id: Optional[int] = None,
+    prompt_id: Optional[int] = None,
     user_id: int = 1
 ) -> Generator[str, None, str]:
     """
@@ -296,7 +301,7 @@ def execute_call_prompt_ai(
     from services.ai_prompt_generation_service import generate_prompt_with_ai_stream
     from services.hyper_ai_service import get_llm_config
 
-    logger.info(f"[call_prompt_ai] task={task[:50]}..., conv_id={conversation_id}")
+    logger.info(f"[call_prompt_ai] task={task[:50]}..., conv_id={conversation_id}, prompt_id={prompt_id}")
 
     try:
         llm_config = get_llm_config(db)
@@ -311,6 +316,7 @@ def execute_call_prompt_ai(
             db=db,
             user_message=task,
             conversation_id=conversation_id,
+            prompt_id=prompt_id,
             user_id=user_id,
             llm_config=llm_config
         )
@@ -492,6 +498,7 @@ def execute_subagent_tool(
                 db,
                 task=arguments.get("task", ""),
                 conversation_id=arguments.get("conversation_id"),
+                prompt_id=arguments.get("prompt_id"),
                 user_id=user_id
             ))
 

@@ -695,7 +695,7 @@ function App() {
     }
 
     return (
-      <main className="flex-1 p-4 overflow-hidden flex flex-col min-h-0 min-w-0">
+      <main className={`flex-1 overflow-hidden flex flex-col min-h-0 min-w-0 ${currentPage === 'hyper-ai' ? '' : 'p-4'}`}>
 
         {currentPage === 'hyper-ai' && (
           <HyperAiPage />
