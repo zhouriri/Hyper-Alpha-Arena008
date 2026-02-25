@@ -28,6 +28,7 @@ from services.ai_decision_service import (
     convert_messages_to_anthropic,
     strip_thinking_tags,
 )
+from services.ai_stream_service import format_sse_event
 from services.ai_shared_tools import (
     SHARED_SIGNAL_TOOLS,
     execute_get_signal_pools,
@@ -573,7 +574,7 @@ def generate_prompt_with_ai_stream(
         }
         account_name = account.name
     else:
-        yield f"data: {json.dumps({'type': 'error', 'content': 'No LLM configuration provided'})}\n\n"
+        yield format_sse_event("error", {"content": "No LLM configuration provided"})
         return
 
     logger.info(f"[AI Prompt Gen {request_id}] Starting: account={account_name}, "
@@ -687,7 +688,7 @@ def generate_prompt_with_ai_stream(
         # Detect API format and build endpoints
         endpoint, api_format = detect_api_format(api_config["base_url"])
         if not endpoint:
-            yield f"data: {json.dumps({'type': 'error', 'content': 'Invalid API configuration'})}\n\n"
+            yield format_sse_event("error", {"content": "Invalid API configuration"})
             return
 
         if api_format == 'anthropic':
@@ -695,7 +696,7 @@ def generate_prompt_with_ai_stream(
         else:
             endpoints = build_chat_completion_endpoints(api_config["base_url"], api_config["model"])
             if not endpoints:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'Invalid API configuration'})}\n\n"
+                yield format_sse_event("error", {"content": "Invalid API configuration"})
                 return
         # Use unified headers builder (see build_llm_headers in ai_decision_service)
         headers = build_llm_headers(api_format, api_config["api_key"])
@@ -723,7 +724,7 @@ def generate_prompt_with_ai_stream(
             tool_round += 1
             is_last = tool_round == max_rounds
 
-            yield f"data: {json.dumps({'type': 'tool_round', 'round': tool_round, 'max': max_rounds})}\n\n"
+            yield format_sse_event("tool_round", {"round": tool_round, "max": max_rounds})
 
             # Use unified payload builder (see build_llm_payload in ai_decision_service)
             if api_format == 'anthropic':
@@ -787,7 +788,7 @@ def generate_prompt_with_ai_stream(
                 if retry_attempt < API_MAX_RETRIES - 1:
                     delay = _get_retry_delay(retry_attempt)
                     logger.warning(f"[AI Prompt Gen {request_id}] Retrying in {delay:.1f}s")
-                    yield f"data: {json.dumps({'type': 'retry', 'attempt': retry_attempt + 2, 'max_retries': API_MAX_RETRIES})}\n\n"
+                    yield format_sse_event("retry", {"attempt": retry_attempt + 2, "max_retries": API_MAX_RETRIES})
                     time.sleep(delay)
 
             if not response or response.status_code != 200:
@@ -807,11 +808,11 @@ def generate_prompt_with_ai_stream(
                     assistant_msg.is_complete = False
                     assistant_msg.interrupt_reason = f"Round {tool_round}: {error_detail}"
                     db.commit()
-                    yield f"data: {json.dumps({'type': 'interrupted', 'message_id': assistant_msg.id, 'error': error_detail})}\n\n"
+                    yield format_sse_event("interrupted", {"message_id": assistant_msg.id, "error": error_detail})
                 else:
                     db.delete(assistant_msg)
                     db.commit()
-                    yield f"data: {json.dumps({'type': 'error', 'content': f'API request failed: {error_detail}'})}\n\n"
+                    yield format_sse_event("error", {"content": f"API request failed: {error_detail}"})
                 return
 
             resp_json = response.json()
@@ -835,7 +836,7 @@ def generate_prompt_with_ai_stream(
 
                 if reasoning_content:
                     reasoning_snapshot += f"\n[Round {tool_round}]\n{reasoning_content}"
-                    yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning_content[:500]})}\n\n"
+                    yield format_sse_event("reasoning", {"content": reasoning_content[:500]})
 
                 # Strip <thinking> text tags from content
                 content, tag_thinking = strip_thinking_tags(content)
@@ -856,7 +857,7 @@ def generate_prompt_with_ai_stream(
                         tool_id = tool_use.get("id", "")
                         tool_args = tool_use.get("input", {})
 
-                        yield f"data: {json.dumps({'type': 'tool_call', 'name': tool_name, 'args': tool_args})}\n\n"
+                        yield format_sse_event("tool_call", {"name": tool_name, "args": tool_args})
 
                         result = execute_tool(tool_name, tool_args, request_id, db, prompt_id)
                         tool_calls_log.append({
@@ -869,11 +870,11 @@ def generate_prompt_with_ai_stream(
                         if tool_name == "suggest_apply_prompt":
                             try:
                                 suggest_apply_data = json.loads(result)
-                                yield f"data: {json.dumps({'type': 'suggest_apply', 'prompt_text': suggest_apply_data.get('prompt_text', ''), 'summary': suggest_apply_data.get('summary', '')})}\n\n"
+                                yield format_sse_event("suggest_apply", {"prompt_text": suggest_apply_data.get("prompt_text", ""), "summary": suggest_apply_data.get("summary", "")})
                             except:
                                 pass
 
-                        yield f"data: {json.dumps({'type': 'tool_result', 'name': tool_name, 'result': result[:200] + '...' if len(result) > 200 else result})}\n\n"
+                        yield format_sse_event("tool_result", {"name": tool_name, "result": result[:200] + "..." if len(result) > 200 else result})
 
                         messages.append({
                             "role": "tool",
@@ -913,7 +914,7 @@ def generate_prompt_with_ai_stream(
                         assistant_msg_dict["reasoning_content"] = reasoning_content
                         reasoning_snapshot += f"\n[Round {tool_round}]\n{reasoning_content}"
                         # Stream reasoning to frontend
-                        yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning_content[:500]})}\n\n"
+                        yield format_sse_event("reasoning", {"content": reasoning_content[:500]})
                     messages.append(assistant_msg_dict)
 
                     for tc in tool_calls:
@@ -925,7 +926,7 @@ def generate_prompt_with_ai_stream(
                         except:
                             tool_args = {}
 
-                        yield f"data: {json.dumps({'type': 'tool_call', 'name': tool_name, 'args': tool_args})}\n\n"
+                        yield format_sse_event("tool_call", {"name": tool_name, "args": tool_args})
 
                         result = execute_tool(tool_name, tool_args, request_id, db, prompt_id)
                         tool_calls_log.append({
@@ -938,11 +939,11 @@ def generate_prompt_with_ai_stream(
                         if tool_name == "suggest_apply_prompt":
                             try:
                                 suggest_apply_data = json.loads(result)
-                                yield f"data: {json.dumps({'type': 'suggest_apply', 'prompt_text': suggest_apply_data.get('prompt_text', ''), 'summary': suggest_apply_data.get('summary', '')})}\n\n"
+                                yield format_sse_event("suggest_apply", {"prompt_text": suggest_apply_data.get("prompt_text", ""), "summary": suggest_apply_data.get("summary", "")})
                             except:
                                 pass
 
-                        yield f"data: {json.dumps({'type': 'tool_result', 'name': tool_name, 'result': result[:200] + '...' if len(result) > 200 else result})}\n\n"
+                        yield format_sse_event("tool_result", {"name": tool_name, "result": result[:200] + "..." if len(result) > 200 else result})
 
                         messages.append({
                             "role": "tool",
@@ -968,8 +969,16 @@ def generate_prompt_with_ai_stream(
         db.commit()
 
         # Send final content and done event
-        yield f"data: {json.dumps({'type': 'content', 'content': final_content})}\n\n"
-        yield f"data: {json.dumps({'type': 'done', 'conversation_id': conversation.id, 'message_id': assistant_msg.id, 'prompt_result': prompt_result, 'tool_calls_log': tool_calls_log if tool_calls_log else None, 'reasoning_snapshot': reasoning_snapshot if reasoning_snapshot else None, 'compression_points': json.loads(conversation.compression_points) if conversation.compression_points else None})}\n\n"
+        yield format_sse_event("content", {"content": final_content})
+        done_data = {
+            "conversation_id": conversation.id,
+            "message_id": assistant_msg.id,
+            "prompt_result": prompt_result,
+            "tool_calls_log": tool_calls_log if tool_calls_log else None,
+            "reasoning_snapshot": reasoning_snapshot if reasoning_snapshot else None,
+            "compression_points": json.loads(conversation.compression_points) if conversation.compression_points else None,
+        }
+        yield format_sse_event("done", done_data)
 
         total_elapsed = time.time() - start_time
         logger.info(f"[AI Prompt Gen {request_id}] Completed in {total_elapsed:.2f}s")
@@ -977,7 +986,7 @@ def generate_prompt_with_ai_stream(
     except Exception as e:
         logger.error(f"[AI Prompt Gen {request_id}] Unexpected error: {e}", exc_info=True)
         db.rollback()
-        yield f"data: {json.dumps({'type': 'error', 'content': f'Internal error: {type(e).__name__}'})}\n\n"
+        yield format_sse_event("error", {"content": f"Internal error: {type(e).__name__}"})
 
 
 # ============================================================================

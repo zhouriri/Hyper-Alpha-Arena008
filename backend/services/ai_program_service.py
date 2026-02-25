@@ -22,6 +22,7 @@ from database.models import (
     BacktestResult, BacktestTriggerLog, AccountProgramBinding
 )
 from services.ai_decision_service import build_chat_completion_endpoints, detect_api_format, _extract_text_from_message, get_max_tokens, build_llm_payload, build_llm_headers, extract_reasoning, convert_tools_to_anthropic, convert_messages_to_anthropic, strip_thinking_tags
+from services.ai_stream_service import format_sse_event
 from services.system_logger import system_logger
 from services.ai_shared_tools import (
     SHARED_SIGNAL_TOOLS,
@@ -886,6 +887,8 @@ def _call_anthropic_streaming(endpoint: str, payload: dict, headers: dict, timeo
 
             if block_type == "text":
                 current_block = {"type": "text", "text": ""}
+            elif block_type == "thinking":
+                current_block = {"type": "thinking", "thinking": ""}
             elif block_type == "tool_use":
                 current_block = {
                     "type": "tool_use",
@@ -901,6 +904,8 @@ def _call_anthropic_streaming(endpoint: str, payload: dict, headers: dict, timeo
 
             if delta_type == "text_delta" and current_block:
                 current_block["text"] += delta.get("text", "")
+            elif delta_type == "thinking_delta" and current_block:
+                current_block["thinking"] += delta.get("thinking", "")
             elif delta_type == "input_json_delta" and current_block:
                 current_block["input"] += delta.get("partial_json", "")
 
@@ -1771,7 +1776,7 @@ def generate_program_with_ai_stream(
             ).first()
 
             if not account:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'AI account not found'})}\n\n"
+                yield format_sse_event("error", {"content": "AI account not found"})
                 return
 
             api_config = {
@@ -1798,7 +1803,7 @@ def generate_program_with_ai_stream(
             )
             db.add(conversation)
             db.flush()
-            yield f"data: {json.dumps({'type': 'conversation_created', 'conversation_id': conversation.id})}\n\n"
+            yield format_sse_event("conversation_created", {"conversation_id": conversation.id})
 
         # Save user message
         user_msg = AiProgramMessage(
@@ -1889,7 +1894,7 @@ You are creating a new program. Start fresh and design the strategy based on use
         # Detect API format and build endpoints
         endpoint, api_format = detect_api_format(api_config["base_url"])
         if not endpoint:
-            yield f"data: {json.dumps({'type': 'error', 'content': 'Invalid API configuration'})}\n\n"
+            yield format_sse_event("error", {"content": "Invalid API configuration"})
             return
 
         # For OpenAI format, use fallback endpoints; for Anthropic, use single endpoint
@@ -1898,7 +1903,7 @@ You are creating a new program. Start fresh and design the strategy based on use
         else:
             endpoints = build_chat_completion_endpoints(api_config["base_url"], api_config["model"])
             if not endpoints:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'Invalid API configuration'})}\n\n"
+                yield format_sse_event("error", {"content": "Invalid API configuration"})
                 return
         # Use unified headers builder (see build_llm_headers in ai_decision_service)
         headers = build_llm_headers(api_format, api_config["api_key"])
@@ -1928,7 +1933,7 @@ You are creating a new program. Start fresh and design the strategy based on use
             tool_round += 1
             is_last = tool_round == max_rounds
 
-            yield f"data: {json.dumps({'type': 'tool_round', 'round': tool_round, 'max': max_rounds})}\n\n"
+            yield format_sse_event("tool_round", {"round": tool_round, "max": max_rounds})
 
             # Use unified payload builder (see build_llm_payload in ai_decision_service)
             if api_format == 'anthropic':
@@ -2022,7 +2027,7 @@ You are creating a new program. Start fresh and design the strategy based on use
                 if retry_attempt < API_MAX_RETRIES - 1:
                     delay = _get_retry_delay(retry_attempt)
                     logger.warning(f"[AI Program {request_id}] Retrying in {delay:.1f}s (attempt {retry_attempt + 2}/{API_MAX_RETRIES})")
-                    yield f"data: {json.dumps({'type': 'retry', 'attempt': retry_attempt + 2, 'max_retries': API_MAX_RETRIES})}\n\n"
+                    yield format_sse_event("retry", {"attempt": retry_attempt + 2, "max_retries": API_MAX_RETRIES})
                     time.sleep(delay)
 
             # Check for failure - build comprehensive error detail
@@ -2045,11 +2050,11 @@ You are creating a new program. Start fresh and design the strategy based on use
                         assistant_msg.is_complete = False
                         assistant_msg.interrupt_reason = f"Round {tool_round}: {error_detail}"
                         db.commit()
-                        yield f"data: {json.dumps({'type': 'interrupted', 'message_id': assistant_msg.id, 'round': tool_round, 'error': error_detail})}\n\n"
+                        yield format_sse_event("interrupted", {"message_id": assistant_msg.id, "round": tool_round, "error": error_detail})
                     else:
                         db.delete(assistant_msg)
                         db.commit()
-                        yield f"data: {json.dumps({'type': 'error', 'content': f'API request failed: {error_detail}'})}\n\n"
+                        yield format_sse_event("error", {"content": f"API request failed: {error_detail}"})
                     return
             else:
                 if not response or response.status_code != 200:
@@ -2072,11 +2077,11 @@ You are creating a new program. Start fresh and design the strategy based on use
                         assistant_msg.is_complete = False
                         assistant_msg.interrupt_reason = f"Round {tool_round}: {error_detail}"
                         db.commit()
-                        yield f"data: {json.dumps({'type': 'interrupted', 'message_id': assistant_msg.id, 'round': tool_round, 'error': error_detail})}\n\n"
+                        yield format_sse_event("interrupted", {"message_id": assistant_msg.id, "round": tool_round, "error": error_detail})
                     else:
                         db.delete(assistant_msg)
                         db.commit()
-                        yield f"data: {json.dumps({'type': 'error', 'content': f'API request failed: {error_detail}'})}\n\n"
+                        yield format_sse_event("error", {"content": f"API request failed: {error_detail}"})
                     return
                 resp_json = response.json()
 
@@ -2100,7 +2105,7 @@ You are creating a new program. Start fresh and design the strategy based on use
 
                 if reasoning_content:
                     reasoning_snapshot += f"\n[Round {tool_round}]\n{reasoning_content}"
-                    yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning_content[:500]})}\n\n"
+                    yield format_sse_event("reasoning", {"content": reasoning_content[:500]})
 
                 # Strip <thinking> text tags from content
                 content, tag_thinking = strip_thinking_tags(content)
@@ -2126,7 +2131,7 @@ You are creating a new program. Start fresh and design the strategy based on use
                         if fn_args == "":
                             fn_args = {}
 
-                        yield f"data: {json.dumps({'type': 'tool_call', 'name': fn_name, 'args': fn_args})}\n\n"
+                        yield format_sse_event("tool_call", {"name": fn_name, "args": fn_args})
 
                         result = _execute_tool(fn_name, fn_args, db, program_id, user_id)
                         tool_calls_log.append({"tool": fn_name, "args": fn_args, "result": result[:1000]})
@@ -2141,11 +2146,11 @@ You are creating a new program. Start fresh and design the strategy based on use
                                         "name": suggestion.get("name", ""),
                                         "description": suggestion.get("description", "")
                                     })
-                                    yield f"data: {json.dumps({'type': 'save_suggestion', 'data': suggestion})}\n\n"
+                                    yield format_sse_event("save_suggestion", {"data": suggestion})
                             except:
                                 pass
 
-                        yield f"data: {json.dumps({'type': 'tool_result', 'name': fn_name, 'result': result[:500]})}\n\n"
+                        yield format_sse_event("tool_result", {"name": fn_name, "result": result[:500]})
 
                         # Add tool result in OpenAI format (will be converted for Anthropic)
                         messages.append({
@@ -2156,7 +2161,7 @@ You are creating a new program. Start fresh and design the strategy based on use
                 else:
                     # No tool calls - final response
                     final_content = content or ""
-                    yield f"data: {json.dumps({'type': 'content', 'content': final_content})}\n\n"
+                    yield format_sse_event("content", {"content": final_content})
                     break
             else:
                 # OpenAI format response
@@ -2168,13 +2173,13 @@ You are creating a new program. Start fresh and design the strategy based on use
                 # Extract reasoning (for DeepSeek Reasoner, use reasoning_content directly)
                 if reasoning_content:
                     reasoning_snapshot += f"\n[Round {tool_round}]\n{reasoning_content}"
-                    yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning_content[:500]})}\n\n"
+                    yield format_sse_event("reasoning", {"content": reasoning_content[:500]})
                 else:
                     # Fallback: unified extraction for other models (Qwen thinking, etc.)
                     reasoning = extract_reasoning(message)
                     if reasoning:
                         reasoning_snapshot += f"\n[Round {tool_round}]\n{reasoning}"
-                        yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning[:500]})}\n\n"
+                        yield format_sse_event("reasoning", {"content": reasoning[:500]})
 
                 # Strip <thinking> text tags from content
                 content, tag_thinking = strip_thinking_tags(content)
@@ -2200,7 +2205,7 @@ You are creating a new program. Start fresh and design the strategy based on use
                         except:
                             fn_args = {}
 
-                        yield f"data: {json.dumps({'type': 'tool_call', 'name': fn_name, 'args': fn_args})}\n\n"
+                        yield format_sse_event("tool_call", {"name": fn_name, "args": fn_args})
 
                         result = _execute_tool(fn_name, fn_args, db, program_id, user_id)
                         tool_calls_log.append({"tool": fn_name, "args": fn_args, "result": result[:1000]})
@@ -2215,11 +2220,11 @@ You are creating a new program. Start fresh and design the strategy based on use
                                         "name": suggestion.get("name", ""),
                                         "description": suggestion.get("description", "")
                                     })
-                                    yield f"data: {json.dumps({'type': 'save_suggestion', 'data': suggestion})}\n\n"
+                                    yield format_sse_event("save_suggestion", {"data": suggestion})
                             except:
                                 pass
 
-                        yield f"data: {json.dumps({'type': 'tool_result', 'name': fn_name, 'result': result[:500]})}\n\n"
+                        yield format_sse_event("tool_result", {"name": fn_name, "result": result[:500]})
 
                         messages.append({
                             "role": "tool",
@@ -2229,7 +2234,7 @@ You are creating a new program. Start fresh and design the strategy based on use
                 else:
                     # No tool calls - final response
                     final_content = content or ""
-                    yield f"data: {json.dumps({'type': 'content', 'content': final_content})}\n\n"
+                    yield format_sse_event("content", {"content": final_content})
                     break
 
             # Save progress after each round (for retry support)
@@ -2257,9 +2262,17 @@ You are creating a new program. Start fresh and design the strategy based on use
         assistant_msg.is_complete = True
         db.commit()
 
-        yield f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg.id, 'content': final_content, 'conversation_id': conversation.id, 'tool_calls_log': tool_calls_log if tool_calls_log else None, 'reasoning_snapshot': reasoning_snapshot if reasoning_snapshot else None, 'compression_points': json.loads(conversation.compression_points) if conversation.compression_points else None})}\n\n"
+        done_data = {
+            "message_id": assistant_msg.id,
+            "content": final_content,
+            "conversation_id": conversation.id,
+            "tool_calls_log": tool_calls_log if tool_calls_log else None,
+            "reasoning_snapshot": reasoning_snapshot if reasoning_snapshot else None,
+            "compression_points": json.loads(conversation.compression_points) if conversation.compression_points else None,
+        }
+        yield format_sse_event("done", done_data)
 
     except Exception as e:
         logger.error(f"[AI Program {request_id}] Error: {e}")
         db.rollback()
-        yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        yield format_sse_event("error", {"content": str(e)})

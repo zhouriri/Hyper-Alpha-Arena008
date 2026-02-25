@@ -259,7 +259,7 @@ export default function AiPromptChatModal({
 
         const pollResult = await pollAiStream(taskId, {
           onChunk: (chunk) => {
-            handleSSEEvent(chunk.data, tempAssistantMsgId, (updates) => {
+            handleSSEEvent(chunk.event_type, chunk.data, tempAssistantMsgId, (updates) => {
               if (updates.content !== undefined) finalContent = updates.content
               if (updates.promptResult !== undefined) finalPromptResult = updates.promptResult
               if (updates.conversationId) finalConversationId = updates.conversationId
@@ -306,6 +306,7 @@ export default function AiPromptChatModal({
         let finalContent = ''
         let finalPromptResult: string | null = null
         let hasError = false
+        let currentEventType = ''
 
         while (true) {
           const { done, value } = await reader.read()
@@ -316,16 +317,21 @@ export default function AiPromptChatModal({
           buffer = lines.pop() || ''
 
           for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEventType = line.slice(7).trim()
+              continue
+            }
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6))
-                handleSSEEvent(data, tempAssistantMsgId, (updates) => {
+                handleSSEEvent(currentEventType || data.type as string, data, tempAssistantMsgId, (updates) => {
                   if (updates.content !== undefined) finalContent = updates.content
                   if (updates.promptResult !== undefined) finalPromptResult = updates.promptResult
                   if (updates.conversationId) finalConversationId = updates.conversationId
                   if (updates.error) hasError = true
                 })
               } catch {}
+              currentEventType = ''
             }
           }
         }
@@ -372,11 +378,11 @@ export default function AiPromptChatModal({
   }
 
   const handleSSEEvent = (
+    eventType: string,
     data: Record<string, unknown>,
     msgId: number,
     onUpdate: (updates: { content?: string; promptResult?: string | null; conversationId?: number; error?: boolean }) => void
   ) => {
-    const eventType = data.type as string
 
     if (eventType === 'conversation_created') {
       onUpdate({ conversationId: data.conversation_id as number })

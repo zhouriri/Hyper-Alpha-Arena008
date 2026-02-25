@@ -257,7 +257,7 @@ export default function AiProgramChatModal({
 
         const pollResult = await pollAiStream(taskId, {
           onChunk: (chunk) => {
-            handleSSEEvent(chunk.data, tempAssistantMsgId, (updates) => {
+            handleSSEEvent(chunk.event_type, chunk.data, tempAssistantMsgId, (updates) => {
               if (updates.content !== undefined) finalContent = updates.content
               if (updates.suggestion) finalSuggestion = updates.suggestion
               if (updates.conversationId) finalConversationId = updates.conversationId
@@ -298,6 +298,7 @@ export default function AiProgramChatModal({
         let finalContent = ''
         let finalSuggestion: SaveSuggestion | null = null
         let hasError = false
+        let currentEventType = ''
 
         while (true) {
           const { done, value } = await reader.read()
@@ -308,16 +309,21 @@ export default function AiProgramChatModal({
           buffer = lines.pop() || ''
 
           for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEventType = line.slice(7).trim()
+              continue
+            }
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6))
-                handleSSEEvent(data, tempAssistantMsgId, (updates) => {
+                handleSSEEvent(currentEventType || data.type as string, data, tempAssistantMsgId, (updates) => {
                   if (updates.content !== undefined) finalContent = updates.content
                   if (updates.suggestion) finalSuggestion = updates.suggestion
                   if (updates.conversationId) finalConversationId = updates.conversationId
                   if (updates.error) hasError = true
                 })
               } catch {}
+              currentEventType = ''
             }
           }
         }
@@ -362,11 +368,11 @@ export default function AiProgramChatModal({
   }
 
   const handleSSEEvent = (
+    eventType: string,
     data: Record<string, unknown>,
     msgId: number,
     onUpdate: (updates: { content?: string; suggestion?: SaveSuggestion; conversationId?: number; error?: boolean }) => void
   ) => {
-    const eventType = data.type as string
 
     if (eventType === 'conversation_created') {
       // Only save the ID, don't set state yet (will be set after SSE completes)

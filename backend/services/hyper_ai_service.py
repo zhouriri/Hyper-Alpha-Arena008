@@ -464,8 +464,8 @@ def build_messages_for_api(
                 result["summary"], result["compressed_at"], db
             )
 
-    # Return tools if requested (only for OpenAI format)
-    tools = HYPER_AI_TOOLS if include_tools and api_config.get("api_format") != "anthropic" else None
+    # Return tools if requested (OpenAI format; Anthropic conversion happens in stream_chat_response)
+    tools = HYPER_AI_TOOLS if include_tools else None
 
     return messages, tools
 
@@ -748,10 +748,11 @@ def stream_chat_response(
             if api_tool_calls:
                 # Process tool calls - build assistant message with reasoning_content for DeepSeek
                 if api_format == "anthropic":
-                    # Anthropic format
+                    # Anthropic format - store tool_use_blocks for convert_messages_to_anthropic
                     messages.append({
                         "role": "assistant",
-                        "content": content_blocks
+                        "content": content or "",
+                        "tool_use_blocks": content_blocks
                     })
                     for tu in api_tool_calls:
                         fn_name = tu.get("name", "")
@@ -775,12 +776,9 @@ def stream_chat_response(
                             "result": tool_result[:200] if len(tool_result) > 200 else tool_result
                         })
                         messages.append({
-                            "role": "user",
-                            "content": [{
-                                "type": "tool_result",
-                                "tool_use_id": tool_use_id,
-                                "content": tool_result
-                            }]
+                            "role": "tool",
+                            "tool_call_id": tool_use_id,
+                            "content": tool_result
                         })
                 else:
                     # OpenAI format - MUST include reasoning_content for DeepSeek Reasoner
