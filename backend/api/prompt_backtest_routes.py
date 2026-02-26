@@ -163,7 +163,7 @@ def create_backtest_task(
 ):
     """Create a new prompt backtest task."""
     # Validate account exists
-    account = db.query(Account).filter(Account.id == request.account_id).first()
+    account = db.query(Account).filter(Account.id == request.account_id, Account.is_deleted != True).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
@@ -203,7 +203,8 @@ def create_backtest_task(
         template_name = None
         if original_log.prompt_template_id:
             template = db.query(PromptTemplate).filter(
-                PromptTemplate.id == original_log.prompt_template_id
+                PromptTemplate.id == original_log.prompt_template_id,
+                PromptTemplate.is_deleted == "false"
             ).first()
             if template:
                 template_name = template.name

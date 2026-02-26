@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -85,13 +85,17 @@ def list_bindings(db: Session) -> List[Tuple[AccountPromptBinding, Account, Prom
         select(AccountPromptBinding, Account, PromptTemplate)
         .join(Account, AccountPromptBinding.account_id == Account.id)
         .join(PromptTemplate, AccountPromptBinding.prompt_template_id == PromptTemplate.id)
+        .where(Account.is_deleted != True)
+        .where(AccountPromptBinding.is_deleted != True)
         .order_by(Account.name.asc())
     )
     return list(db.execute(statement).all())
 
 
-def get_binding_by_account(db: Session, account_id: int) -> Optional[AccountPromptBinding]:
+def get_binding_by_account(db: Session, account_id: int, include_deleted: bool = False) -> Optional[AccountPromptBinding]:
     statement = select(AccountPromptBinding).where(AccountPromptBinding.account_id == account_id)
+    if not include_deleted:
+        statement = statement.where(AccountPromptBinding.is_deleted != True)
     return db.execute(statement).scalar_one_or_none()
 
 
@@ -102,11 +106,15 @@ def upsert_binding(
     prompt_template_id: int,
     updated_by: Optional[str] = None,
 ) -> AccountPromptBinding:
-    binding = get_binding_by_account(db, account_id)
+    # Check for existing binding (including soft-deleted, to handle unique constraint)
+    binding = get_binding_by_account(db, account_id, include_deleted=True)
 
     if binding:
         binding.prompt_template_id = prompt_template_id
         binding.updated_by = updated_by
+        # Restore if soft-deleted
+        binding.is_deleted = False
+        binding.deleted_at = None
     else:
         binding = AccountPromptBinding(
             account_id=account_id,
@@ -124,7 +132,8 @@ def delete_binding(db: Session, binding_id: int) -> None:
     binding = db.get(AccountPromptBinding, binding_id)
     if not binding:
         raise ValueError(f"Prompt binding with id '{binding_id}' not found")
-    db.delete(binding)
+    binding.is_deleted = True
+    binding.deleted_at = datetime.now(timezone.utc)
     db.commit()
 
 
@@ -239,9 +248,12 @@ def soft_delete_template(db: Session, template_id: int) -> None:
     if template.is_system == "true":
         raise ValueError("Cannot delete system templates")
 
-    # Check if template is in use
+    # Check if template is in use (only active bindings)
     binding = db.execute(
-        select(AccountPromptBinding).where(AccountPromptBinding.prompt_template_id == template_id)
+        select(AccountPromptBinding).where(
+            AccountPromptBinding.prompt_template_id == template_id,
+            AccountPromptBinding.is_deleted != True
+        )
     ).scalar_one_or_none()
 
     if binding:
@@ -250,6 +262,7 @@ def soft_delete_template(db: Session, template_id: int) -> None:
         )
 
     template.is_deleted = "true"
+    template.deleted_at = datetime.now(timezone.utc)
     db.add(template)
     db.commit()
 

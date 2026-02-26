@@ -86,7 +86,8 @@ def _get_hyperliquid_positions(db: Session, account_id: Optional[int], environme
     accounts_query = db.query(Account).filter(
         Account.account_type == "AI",
         Account.is_active == "true",
-        Account.show_on_dashboard == True
+        Account.show_on_dashboard == True,
+        Account.is_deleted != True
     )
 
     if account_id:
@@ -258,7 +259,8 @@ def _get_binance_positions(db: Session, account_id: Optional[int], environment: 
     accounts_query = db.query(Account).filter(
         Account.account_type == "AI",
         Account.is_active == "true",
-        Account.show_on_dashboard == True
+        Account.show_on_dashboard == True,
+        Account.is_deleted != True
     )
     if account_id:
         accounts_query = accounts_query.filter(Account.id == account_id)
@@ -588,7 +590,7 @@ def get_completed_trades(
         account_ids = {trade.account_id for trade in hyper_trades}
         account_map = {
             acc.id: acc
-            for acc in db.query(Account).filter(Account.id.in_(account_ids)).all()
+            for acc in db.query(Account).filter(Account.id.in_(account_ids), Account.is_deleted != True).all()
         }
 
         # Batch fetch decision logs to build order relationships
@@ -634,13 +636,13 @@ def get_completed_trades(
         # Batch fetch prompt template names
         prompt_template_map = {}
         if prompt_template_ids:
-            templates = db.query(PromptTemplate).filter(PromptTemplate.id.in_(prompt_template_ids)).all()
+            templates = db.query(PromptTemplate).filter(PromptTemplate.id.in_(prompt_template_ids), PromptTemplate.is_deleted == "false").all()
             prompt_template_map = {t.id: t.name for t in templates}
 
         # Batch fetch program names
         program_map = {}
         if program_ids:
-            programs = db.query(TradingProgram).filter(TradingProgram.id.in_(program_ids)).all()
+            programs = db.query(TradingProgram).filter(TradingProgram.id.in_(program_ids), TradingProgram.is_deleted != True).all()
             program_map = {p.id: p.name for p in programs}
 
         # Also query ProgramExecutionLog for orders not in AIDecisionLog
@@ -677,7 +679,7 @@ def get_completed_trades(
 
         # Batch fetch program names for ProgramExecutionLog
         if program_log_program_ids:
-            extra_programs = db.query(TradingProgram).filter(TradingProgram.id.in_(program_log_program_ids)).all()
+            extra_programs = db.query(TradingProgram).filter(TradingProgram.id.in_(program_log_program_ids), TradingProgram.is_deleted != True).all()
             for p in extra_programs:
                 program_map[p.id] = p.name
 
@@ -1045,7 +1047,7 @@ def get_model_chat(
     prompt_template_ids = {log.prompt_template_id for log, _ in decision_rows if log.prompt_template_id}
     prompt_template_map = {}
     if prompt_template_ids:
-        templates = db.query(PromptTemplate).filter(PromptTemplate.id.in_(prompt_template_ids)).all()
+        templates = db.query(PromptTemplate).filter(PromptTemplate.id.in_(prompt_template_ids), PromptTemplate.is_deleted == "false").all()
         prompt_template_map = {t.id: t.name for t in templates}
 
     for log, account in decision_rows:
@@ -1160,6 +1162,7 @@ def get_positions_snapshot(
         Account.account_type == "AI",
         Account.is_active == "true",
         Account.show_on_dashboard == True,
+        Account.is_deleted != True,
     )
 
     if account_id:
@@ -1252,6 +1255,7 @@ def get_aggregated_analytics(
     '''Return leaderboard-style analytics for AI accounts.'''
     accounts_query = db.query(Account).filter(
         Account.account_type == "AI",
+        Account.is_deleted != True,
     )
 
     if account_id:

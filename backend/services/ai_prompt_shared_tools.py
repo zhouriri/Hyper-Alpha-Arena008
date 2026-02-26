@@ -206,7 +206,7 @@ def execute_get_prompt_context(db: Session, prompt_id: Optional[int]) -> str:
                 pool_ids = parse_signal_pool_ids(strategy)
                 if pool_ids:
                     pool_result = db.execute(
-                        text("SELECT pool_name FROM signal_pools WHERE id = ANY(:ids)"),
+                        text("SELECT pool_name FROM signal_pools WHERE id = ANY(:ids) AND (is_deleted IS NULL OR is_deleted = false)"),
                         {"ids": pool_ids}
                     ).fetchall()
                     pool_names = [row[0] for row in pool_result]
@@ -266,7 +266,8 @@ def execute_get_trader_details(db: Session, trader_id: int) -> str:
         # Get account
         account = db.query(Account).filter(
             Account.id == trader_id,
-            Account.is_active == "true"
+            Account.is_active == "true",
+            Account.is_deleted != True
         ).first()
 
         if not account:
@@ -300,7 +301,7 @@ def execute_get_trader_details(db: Session, trader_id: int) -> str:
                 pools_data = []
                 for pool_id in pool_ids:
                     pool_row = db.execute(
-                        text("SELECT id, pool_name, logic, symbols, signal_ids FROM signal_pools WHERE id = :id"),
+                        text("SELECT id, pool_name, logic, symbols, signal_ids FROM signal_pools WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)"),
                         {"id": pool_id}
                     ).fetchone()
 
@@ -318,7 +319,7 @@ def execute_get_trader_details(db: Session, trader_id: int) -> str:
                         if signal_ids:
                             for sig_id in signal_ids:
                                 sig_row = db.execute(
-                                    text("SELECT signal_name, trigger_condition FROM signal_definitions WHERE id = :id"),
+                                    text("SELECT signal_name, trigger_condition FROM signal_definitions WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)"),
                                     {"id": sig_id}
                                 ).fetchone()
                                 if sig_row:

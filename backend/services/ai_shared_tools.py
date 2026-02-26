@@ -123,12 +123,12 @@ def execute_get_signal_pools(db, exchange: str = "all") -> str:
         if exchange and exchange != "all":
             signals_result = db.execute(text("""
                 SELECT id, signal_name, description, trigger_condition, enabled, exchange
-                FROM signal_definitions WHERE exchange = :exchange ORDER BY id
+                FROM signal_definitions WHERE exchange = :exchange AND (is_deleted IS NULL OR is_deleted = false) ORDER BY id
             """), {"exchange": exchange})
         else:
             signals_result = db.execute(text("""
                 SELECT id, signal_name, description, trigger_condition, enabled, exchange
-                FROM signal_definitions ORDER BY id
+                FROM signal_definitions WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id
             """))
 
         signals_map = {}
@@ -149,12 +149,12 @@ def execute_get_signal_pools(db, exchange: str = "all") -> str:
         if exchange and exchange != "all":
             pools_result = db.execute(text("""
                 SELECT id, pool_name, signal_ids, symbols, enabled, logic, exchange
-                FROM signal_pools WHERE exchange = :exchange ORDER BY id
+                FROM signal_pools WHERE exchange = :exchange AND (is_deleted IS NULL OR is_deleted = false) ORDER BY id
             """), {"exchange": exchange})
         else:
             pools_result = db.execute(text("""
                 SELECT id, pool_name, signal_ids, symbols, enabled, logic, exchange
-                FROM signal_pools ORDER BY id
+                FROM signal_pools WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id
             """))
 
         pools = []

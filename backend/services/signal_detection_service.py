@@ -206,7 +206,7 @@ class SignalDetectionService:
             try:
                 # Load enabled signal pools
                 result = db.execute(
-                    text("SELECT id, pool_name, signal_ids, symbols, enabled, logic, exchange FROM signal_pools WHERE enabled = true")
+                    text("SELECT id, pool_name, signal_ids, symbols, enabled, logic, exchange FROM signal_pools WHERE enabled = true AND (is_deleted IS NULL OR is_deleted = false)")
                 )
                 self._signal_pools_cache = []
                 for row in result.fetchall():
@@ -235,7 +235,7 @@ class SignalDetectionService:
 
                 # Load all enabled signals
                 result = db.execute(
-                    text("SELECT id, signal_name, description, trigger_condition, enabled, exchange FROM signal_definitions WHERE enabled = true")
+                    text("SELECT id, signal_name, description, trigger_condition, enabled, exchange FROM signal_definitions WHERE enabled = true AND (is_deleted IS NULL OR is_deleted = false)")
                 )
                 self._signals_cache = {}
                 for row in result.fetchall():

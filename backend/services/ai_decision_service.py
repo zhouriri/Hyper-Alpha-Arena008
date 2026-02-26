@@ -2424,7 +2424,8 @@ def get_active_ai_accounts(db: Session) -> List[Account]:
     accounts = db.query(Account).filter(
         Account.is_active == "true",
         Account.account_type == "AI",
-        Account.auto_trading_enabled == "true"
+        Account.auto_trading_enabled == "true",
+        Account.is_deleted != True
     ).all()
     
     if not accounts:

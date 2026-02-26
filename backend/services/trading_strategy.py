@@ -266,7 +266,7 @@ class StrategyManager:
 
             # Check account configuration
             with SessionLocal() as db:
-                account = db.query(Account).filter(Account.id == account_id).first()
+                account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
                 if not account or account.auto_trading_enabled != "true":
                     logger.debug(f"Account {account_id} auto trading disabled, skipping strategy execution")
                     return

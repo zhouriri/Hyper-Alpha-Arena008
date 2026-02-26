@@ -65,6 +65,10 @@ class Account(Base):
     # Dashboard visibility
     show_on_dashboard = Column(Boolean, nullable=False, default=True)  # Show/hide on Dashboard views
 
+    # Soft delete
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    deleted_at = Column(TIMESTAMP, nullable=True)
+
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(
         TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
@@ -381,6 +385,7 @@ class PromptTemplate(Base):
     # User-level template support
     is_system = Column(String(10), nullable=False, default="false")  # System templates cannot be deleted
     is_deleted = Column(String(10), nullable=False, default="false")  # Soft delete
+    deleted_at = Column(TIMESTAMP, nullable=True)  # When soft-deleted
     created_by = Column(String(100), nullable=False, default="system")  # Creator identifier
 
     updated_by = Column(String(100), nullable=True)
@@ -403,6 +408,11 @@ class AccountPromptBinding(Base):
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, unique=True)
     prompt_template_id = Column(Integer, ForeignKey("prompt_templates.id"), nullable=False)
     updated_by = Column(String(100), nullable=True)
+
+    # Soft delete
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    deleted_at = Column(TIMESTAMP, nullable=True)
+
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(
         TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
@@ -1008,6 +1018,11 @@ class SignalDefinition(Base):
     trigger_condition = Column(Text, nullable=False)  # JSONB stored as text
     enabled = Column(Boolean, nullable=True, default=True)
     exchange = Column(String(20), nullable=False, default="hyperliquid")
+
+    # Soft delete
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    deleted_at = Column(TIMESTAMP, nullable=True)
+
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(),
                         onupdate=func.current_timestamp())
@@ -1024,6 +1039,11 @@ class SignalPool(Base):
     logic = Column(String(10), nullable=True, default="OR")  # AND/OR logic
     enabled = Column(Boolean, nullable=True, default=True)
     exchange = Column(String(20), nullable=False, default="hyperliquid")
+
+    # Soft delete
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    deleted_at = Column(TIMESTAMP, nullable=True)
+
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
 
 
@@ -1186,6 +1206,10 @@ class TradingProgram(Base):
     last_backtest_result = Column(Text, nullable=True)  # JSON
     last_backtest_at = Column(TIMESTAMP, nullable=True)
 
+    # Soft delete
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    deleted_at = Column(TIMESTAMP, nullable=True)
+
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(
         TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
@@ -1217,6 +1241,10 @@ class AccountProgramBinding(Base):
 
     # Exchange selection for this binding (hyperliquid or binance)
     exchange = Column(String(20), nullable=False, default="hyperliquid")
+
+    # Soft delete
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    deleted_at = Column(TIMESTAMP, nullable=True)
 
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(

@@ -76,6 +76,7 @@ class BinanceSnapshotService:
             ).filter(
                 Account.is_active == "true",
                 Account.account_type == "AI",
+                Account.is_deleted != True,
                 BinanceWallet.environment == global_environment,
                 BinanceWallet.is_active == "true"
             ).distinct().all()

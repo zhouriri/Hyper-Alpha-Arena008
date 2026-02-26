@@ -166,6 +166,7 @@ def get_all_asset_curves_data_new(
     accounts = db.query(Account).filter(
         Account.is_active == "true",
         Account.show_on_dashboard == True,
+        Account.is_deleted != True,
     ).all()
     account_map = {account.id: account for account in accounts}
     rows = _get_bucketed_snapshots(db, bucket_minutes)
@@ -246,6 +247,7 @@ def _build_hyperliquid_asset_curve(
             Account.is_active == "true",
             Account.account_type == "AI",
             Account.show_on_dashboard == True,
+            Account.is_deleted != True,
         )
 
         # Filter by specific account if provided
@@ -387,6 +389,7 @@ def _build_binance_asset_curve(
         Account.is_active == "true",
         Account.account_type == "AI",
         Account.show_on_dashboard == True,
+        Account.is_deleted != True,
     )
     if account_id:
         account_query = account_query.filter(Account.id == account_id)

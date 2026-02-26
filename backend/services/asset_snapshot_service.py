@@ -25,7 +25,7 @@ SNAPSHOT_RETENTION_HOURS = 24 * 30  # Keep 30 days of asset snapshots
 def _get_active_accounts(db: Session) -> List[Account]:
     return (
         db.query(Account)
-        .filter(Account.is_active == "true", Account.account_type == "AI")
+        .filter(Account.is_active == "true", Account.account_type == "AI", Account.is_deleted != True)
         .all()
     )
 

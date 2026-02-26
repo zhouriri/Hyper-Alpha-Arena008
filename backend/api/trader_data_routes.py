@@ -120,7 +120,7 @@ async def export_trader_data(
     Returns a JSON file for download.
     """
     # Verify account exists
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
@@ -267,7 +267,7 @@ async def preview_import(
     Also check if target account has prompt/signal bindings.
     """
     # Verify account exists
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
@@ -301,7 +301,8 @@ async def preview_import(
     # Check account bindings
     warnings = []
     prompt_binding = db.query(AccountPromptBinding).filter(
-        AccountPromptBinding.account_id == account_id
+        AccountPromptBinding.account_id == account_id,
+        AccountPromptBinding.is_deleted != True
     ).first()
 
     strategy_config = db.query(AccountStrategyConfig).filter(
@@ -347,13 +348,14 @@ async def execute_import(
         raise HTTPException(status_code=400, detail="Import must be confirmed")
 
     # Verify target account exists
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
     if not account:
         raise HTTPException(status_code=404, detail="Target account not found")
 
     # Get target trader's bound prompt template for association
     prompt_binding = db.query(AccountPromptBinding).filter(
-        AccountPromptBinding.account_id == account_id
+        AccountPromptBinding.account_id == account_id,
+        AccountPromptBinding.is_deleted != True
     ).first()
     target_prompt_template_id = prompt_binding.prompt_template_id if prompt_binding else None
 

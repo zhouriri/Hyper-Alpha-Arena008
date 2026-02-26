@@ -205,7 +205,7 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2, account_ids: Optional[I
     try:
         # Handle single account strategy trigger
         if account_id is not None:
-            account = db.query(Account).filter(Account.id == account_id).first()
+            account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
             if not account or account.is_active != "true" or account.auto_trading_enabled != "true":
                 logger.debug(f"Account {account_id} not found, inactive, or auto trading disabled, skipping AI trading")
                 return
@@ -364,7 +364,7 @@ def place_ai_driven_hyperliquid_order(
     try:
         # Handle single account strategy trigger (manual trigger)
         if account_id is not None:
-            account = db.query(Account).filter(Account.id == account_id).first()
+            account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
             if not account or account.is_active != "true":
                 logger.debug(f"Account {account_id} not found or inactive")
                 return
@@ -381,7 +381,8 @@ def place_ai_driven_hyperliquid_order(
             # Get all active accounts with auto trading enabled
             accounts = db.query(Account).filter(
                 Account.is_active == "true",
-                Account.auto_trading_enabled == "true"
+                Account.auto_trading_enabled == "true",
+                Account.is_deleted != True
             ).all()
 
             if not accounts:
@@ -485,7 +486,10 @@ def place_ai_driven_hyperliquid_order(
             # Get tracking fields for decision analysis (failures should not affect core business)
             try:
                 from database.models import AccountPromptBinding
-                binding = db.query(AccountPromptBinding).filter_by(account_id=account.id).first()
+                binding = db.query(AccountPromptBinding).filter(
+                    AccountPromptBinding.account_id == account.id,
+                    AccountPromptBinding.is_deleted != True
+                ).first()
                 decision_kwargs["prompt_template_id"] = binding.prompt_template_id if binding else None
             except Exception as e:
                 logger.warning(f"Failed to get prompt_template_id for {account.name}: {e}")
@@ -1251,7 +1255,7 @@ def place_ai_driven_binance_order(
     db = SessionLocal()
     try:
         if account_id is not None:
-            account = db.query(Account).filter(Account.id == account_id).first()
+            account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
             if not account or account.is_active != "true":
                 logger.debug(f"Account {account_id} not found or inactive")
                 return
@@ -1264,7 +1268,8 @@ def place_ai_driven_binance_order(
         else:
             accounts = db.query(Account).filter(
                 Account.is_active == "true",
-                Account.auto_trading_enabled == "true"
+                Account.auto_trading_enabled == "true",
+                Account.is_deleted != True
             ).all()
 
             if not accounts:
@@ -1343,7 +1348,10 @@ def place_ai_driven_binance_order(
             # Get tracking fields for decision analysis
             try:
                 from database.models import AccountPromptBinding
-                binding = db.query(AccountPromptBinding).filter_by(account_id=account.id).first()
+                binding = db.query(AccountPromptBinding).filter(
+                    AccountPromptBinding.account_id == account.id,
+                    AccountPromptBinding.is_deleted != True
+                ).first()
                 decision_kwargs["prompt_template_id"] = binding.prompt_template_id if binding else None
             except Exception as e:
                 logger.warning(f"Failed to get prompt_template_id for {account.name}: {e}")

@@ -114,7 +114,7 @@ async def setup_wallet(
     returns error code 'REBATE_INELIGIBLE' for frontend to show options.
     """
     # Verify account exists
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
@@ -530,7 +530,7 @@ async def get_all_binance_wallets(db: Session = Depends(get_db)):
 
     result = []
     for wallet in wallets:
-        account = db.query(Account).filter(Account.id == wallet.account_id).first()
+        account = db.query(Account).filter(Account.id == wallet.account_id, Account.is_deleted != True).first()
         if not account:
             continue
 
@@ -693,7 +693,7 @@ async def confirm_limited_binding(
     Called when user chooses "Continue with limited quota" in RebateIneligibleModal.
     """
     # Verify account exists
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 

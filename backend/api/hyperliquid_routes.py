@@ -478,7 +478,7 @@ async def get_account_snapshots(
     from database.snapshot_models import HyperliquidAccountSnapshot
 
     # Verify account exists and has Hyperliquid environment configured
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
@@ -808,7 +808,7 @@ async def get_account_wallet(
 
     try:
         # Check if account exists
-        account = db.query(Account).filter(Account.id == account_id).first()
+        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
         if not account:
             raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
@@ -894,7 +894,7 @@ async def configure_account_wallet(
             raise HTTPException(status_code=400, detail="Environment must be 'testnet' or 'mainnet'")
 
         # Check if account exists
-        account = db.query(Account).filter(Account.id == account_id).first()
+        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
         if not account:
             raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
@@ -1095,7 +1095,7 @@ async def delete_account_wallet(
 
     try:
         # Check if account exists
-        account = db.query(Account).filter(Account.id == account_id).first()
+        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
         if not account:
             raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
@@ -1152,7 +1152,7 @@ async def test_wallet_connection(
 
     try:
         # Check if account exists
-        account = db.query(Account).filter(Account.id == account_id).first()
+        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
         if not account:
             raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 

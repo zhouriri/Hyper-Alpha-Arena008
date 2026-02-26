@@ -99,7 +99,7 @@ async def create_ai_analysis(
 
     try:
         # Get the AI Trader account
-        account = db.query(Account).filter(Account.id == request.account_id).first()
+        account = db.query(Account).filter(Account.id == request.account_id, Account.is_deleted != True).first()
         if not account:
             logger.error(f"[AI Analysis {request_id}] AI Trader not found: account_id={request.account_id}")
             raise HTTPException(status_code=404, detail="AI Trader not found")

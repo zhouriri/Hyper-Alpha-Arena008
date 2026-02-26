@@ -69,7 +69,7 @@ class SignalBacktestService:
         result = db.execute(
             text("""
                 SELECT id, signal_name, description, trigger_condition, enabled, exchange
-                FROM signal_definitions WHERE id = :id
+                FROM signal_definitions WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
             """),
             {"id": signal_id}
         )
@@ -1181,7 +1181,7 @@ class SignalBacktestService:
         result = db.execute(
             text("""
                 SELECT id, pool_name, signal_ids, symbols, enabled, logic, exchange
-                FROM signal_pools WHERE id = :id
+                FROM signal_pools WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
             """),
             {"id": pool_id}
         )
@@ -1253,7 +1253,7 @@ class SignalBacktestService:
             result = db.execute(
                 text("""
                     SELECT id, signal_name, trigger_condition
-                    FROM signal_definitions WHERE id = :id
+                    FROM signal_definitions WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
                 """),
                 {"id": signal_id}
             )
@@ -1506,7 +1506,7 @@ class SignalBacktestService:
             result = db.execute(
                 text("""
                     SELECT id, signal_name, trigger_condition
-                    FROM signal_definitions WHERE id = :id
+                    FROM signal_definitions WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
                 """),
                 {"id": signal_id}
             )

@@ -354,7 +354,7 @@ class HyperliquidTradingClient:
         """
         from database.models import HyperliquidWallet
 
-        account = db.query(Account).filter(Account.id == self.account_id).first()
+        account = db.query(Account).filter(Account.id == self.account_id, Account.is_deleted != True).first()
         if not account:
             raise ValueError(f"Account {self.account_id} not found")
 

@@ -57,6 +57,7 @@ class HyperliquidSnapshotService:
             ).filter(
                 Account.is_active == "true",
                 Account.account_type == "AI",
+                Account.is_deleted != True,
                 HyperliquidWallet.environment == global_environment,
                 HyperliquidWallet.is_active == "true"
             ).distinct().all()

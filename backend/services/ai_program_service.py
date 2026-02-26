@@ -1221,7 +1221,8 @@ def _get_backtest_history(db: Session, program_id: Optional[int], user_id: int, 
 
         # Find all bindings for this program (a program can have multiple bindings)
         bindings = db.query(AccountProgramBinding).filter(
-            AccountProgramBinding.program_id == program_id
+            AccountProgramBinding.program_id == program_id,
+            AccountProgramBinding.is_deleted != True
         ).all()
 
         if not bindings:
@@ -1404,7 +1405,7 @@ def _quick_verify_strategy(
         symbols = [symbol]
         if signal_pool_id:
             from database.models import SignalPool
-            pool = db.query(SignalPool).filter(SignalPool.id == signal_pool_id).first()
+            pool = db.query(SignalPool).filter(SignalPool.id == signal_pool_id, SignalPool.is_deleted != True).first()
             if pool and pool.symbols:
                 pool_symbols = pool.symbols
                 if isinstance(pool_symbols, str):
@@ -1508,7 +1509,8 @@ def _execute_tool(
             if program_id:
                 program = db.query(TradingProgram).filter(
                     TradingProgram.id == program_id,
-                    TradingProgram.user_id == user_id
+                    TradingProgram.user_id == user_id,
+                    TradingProgram.is_deleted != True
                 ).first()
                 if program:
                     return f"Current program: {program.name}\n\n```python\n{program.code}\n```"
@@ -1772,7 +1774,8 @@ def generate_program_with_ai_stream(
             # Original logic: get from AI account
             account = db.query(Account).filter(
                 Account.id == account_id,
-                Account.account_type == "AI"
+                Account.account_type == "AI",
+                Account.is_deleted != True
             ).first()
 
             if not account:
@@ -1820,12 +1823,11 @@ def generate_program_with_ai_stream(
             # Edit mode - add context about the program being edited
             program = db.query(TradingProgram).filter(
                 TradingProgram.id == program_id,
-                TradingProgram.user_id == user_id
+                TradingProgram.user_id == user_id,
+                TradingProgram.is_deleted != True
             ).first()
             if program:
                 system_prompt += f"""
-
-## CURRENT CONTEXT
 You are editing an existing program:
 - **Program ID**: {program.id}
 - **Program Name**: {program.name}

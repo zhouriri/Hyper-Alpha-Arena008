@@ -375,7 +375,10 @@ def get_analytics_by_strategy(
     # Get strategy names
     strategy_ids = [sid for sid in by_strategy.keys() if sid is not None]
     if strategy_ids:
-        templates = db.query(PromptTemplate).filter(PromptTemplate.id.in_(strategy_ids)).all()
+        templates = db.query(PromptTemplate).filter(
+            PromptTemplate.id.in_(strategy_ids),
+            PromptTemplate.is_deleted == "false"
+        ).all()
         strategy_names = {t.id: t.name for t in templates}
 
     # Build response
@@ -444,7 +447,10 @@ def get_analytics_by_account(
     account_ids = [aid for aid in by_account.keys() if aid is not None]
     account_info: Dict[int, Dict] = {}
     if account_ids:
-        accounts = db.query(Account).filter(Account.id.in_(account_ids)).all()
+        accounts = db.query(Account).filter(
+            Account.id.in_(account_ids),
+            Account.is_deleted != True
+        ).all()
         account_info = {
             a.id: {"name": a.name, "model": a.model, "environment": a.hyperliquid_environment}
             for a in accounts
@@ -762,7 +768,7 @@ async def get_conversation_messages(
     token_model = None
     api_format = "openai"
     if account_id:
-        acct = db.query(Account).filter(Account.id == account_id).first()
+        acct = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
         if acct and acct.model:
             token_model = acct.model
             from services.ai_decision_service import detect_api_format
@@ -1742,7 +1748,10 @@ def get_program_analytics_by_program(
 
     program_ids = [pid for pid in by_program.keys() if pid is not None]
     if program_ids:
-        programs = db.query(TradingProgram).filter(TradingProgram.id.in_(program_ids)).all()
+        programs = db.query(TradingProgram).filter(
+            TradingProgram.id.in_(program_ids),
+            TradingProgram.is_deleted != True
+        ).all()
         for p in programs:
             program_names[p.id] = p.name
 

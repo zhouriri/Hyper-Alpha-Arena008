@@ -128,7 +128,8 @@ class ProgramExecutionService:
         try:
             # Find active bindings that include this pool_id
             all_bindings = db.query(AccountProgramBinding).filter(
-                AccountProgramBinding.is_active == True
+                AccountProgramBinding.is_active == True,
+                AccountProgramBinding.is_deleted != True
             ).all()
 
             # Filter bindings that have this pool_id in their signal_pool_ids
@@ -185,7 +186,8 @@ class ProgramExecutionService:
         try:
             bindings = db.query(AccountProgramBinding).filter(
                 AccountProgramBinding.is_active == True,
-                AccountProgramBinding.scheduled_trigger_enabled == True
+                AccountProgramBinding.scheduled_trigger_enabled == True,
+                AccountProgramBinding.is_deleted != True
             ).all()
 
             for binding in bindings:
@@ -238,7 +240,8 @@ class ProgramExecutionService:
         try:
             binding = db.query(AccountProgramBinding).filter(
                 AccountProgramBinding.id == binding_id,
-                AccountProgramBinding.is_active == True
+                AccountProgramBinding.is_active == True,
+                AccountProgramBinding.is_deleted != True
             ).first()
 
             if not binding:

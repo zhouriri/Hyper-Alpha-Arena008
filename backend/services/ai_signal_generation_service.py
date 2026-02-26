@@ -280,7 +280,8 @@ def generate_signal_with_ai(
         # Get the specified AI account
         account = db.query(Account).filter(
             Account.id == account_id,
-            Account.account_type == "AI"
+            Account.account_type == "AI",
+            Account.is_deleted != True
         ).first()
 
         if not account:
@@ -1446,7 +1447,8 @@ def generate_signal_with_ai_stream(
             # Original logic: get from AI account
             account = db.query(Account).filter(
                 Account.id == account_id,
-                Account.account_type == "AI"
+                Account.account_type == "AI",
+                Account.is_deleted != True
             ).first()
 
             if not account:
