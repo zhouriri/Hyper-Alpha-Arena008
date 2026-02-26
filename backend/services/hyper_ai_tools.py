@@ -443,6 +443,130 @@ HYPER_AI_TOOLS = [
                 "required": ["trader_id", "prompt_id"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_memory",
+            "description": "Save or update long-term memory with intelligent deduplication. The system automatically compares against existing memories and decides to ADD, UPDATE (merge/replace), or SKIP. To update an existing memory, just call this with the corrected content — the old version will be replaced automatically.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": ["preference", "decision", "lesson", "insight", "context"],
+                        "description": "Memory category: preference (trading style/risk), decision (config changes), lesson (from wins/losses), insight (market patterns), context (general)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Concise, self-contained memory content. Should be understandable without conversation context."
+                    },
+                    "importance": {
+                        "type": "number",
+                        "description": "Importance score 0.0-1.0. Default 0.5. Use 0.7+ for key lessons/preferences, 0.3 for minor context."
+                    }
+                },
+                "required": ["category", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_trader",
+            "description": "Soft-delete an AI Trader. Checks for bindings and open positions first. Returns dependency list if blocked.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trader_id": {"type": "integer", "description": "AI Trader ID to delete"}
+                },
+                "required": ["trader_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_prompt_template",
+            "description": "Soft-delete a Prompt Template. Checks for active bindings first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt_id": {"type": "integer", "description": "Prompt Template ID to delete"}
+                },
+                "required": ["prompt_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_signal_definition",
+            "description": "Soft-delete a Signal Definition. Checks for signal pool references first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "signal_id": {"type": "integer", "description": "Signal Definition ID to delete"}
+                },
+                "required": ["signal_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_signal_pool",
+            "description": "Soft-delete a Signal Pool. Checks for strategy and program binding references first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pool_id": {"type": "integer", "description": "Signal Pool ID to delete"}
+                },
+                "required": ["pool_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_trading_program",
+            "description": "Soft-delete a Trading Program. Checks for active bindings first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "program_id": {"type": "integer", "description": "Trading Program ID to delete"}
+                },
+                "required": ["program_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_prompt_binding",
+            "description": "Soft-delete a Prompt Binding (unbind prompt from trader).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "binding_id": {"type": "integer", "description": "Prompt Binding ID to delete"}
+                },
+                "required": ["binding_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_program_binding",
+            "description": "Soft-delete a Program Binding. Must be deactivated (is_active=false) first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "binding_id": {"type": "integer", "description": "Program Binding ID to delete"}
+                },
+                "required": ["binding_id"]
+            }
+        }
     }
 ]
 
@@ -531,18 +655,20 @@ def execute_get_system_overview(db: Session) -> str:
             result["wallets"]["binance"][env] = count
 
         # Count AI Traders
-        total_traders = db.query(Account).filter(Account.is_active == "true").count()
+        total_traders = db.query(Account).filter(Account.is_active == "true", Account.is_deleted != True).count()
         active_traders = db.query(Account).filter(
             Account.is_active == "true",
-            Account.auto_trading_enabled == "true"
+            Account.auto_trading_enabled == "true",
+            Account.is_deleted != True
         ).count()
         result["ai_traders"]["total"] = total_traders
         result["ai_traders"]["active"] = active_traders
 
         # Count by strategy type
-        prompt_bindings = db.query(AccountPromptBinding).count()
+        prompt_bindings = db.query(AccountPromptBinding).filter(AccountPromptBinding.is_deleted != True).count()
         program_bindings = db.query(AccountProgramBinding).filter(
-            AccountProgramBinding.is_active == True
+            AccountProgramBinding.is_active == True,
+            AccountProgramBinding.is_deleted != True
         ).count()
         result["ai_traders"]["using_prompt"] = prompt_bindings
         result["ai_traders"]["using_program"] = program_bindings
@@ -552,14 +678,14 @@ def execute_get_system_overview(db: Session) -> str:
             PromptTemplate.is_system == "false",
             PromptTemplate.is_deleted == "false"
         ).count()
-        programs = db.query(TradingProgram).count()
+        programs = db.query(TradingProgram).filter(TradingProgram.is_deleted != True).count()
         result["strategies"]["prompts"] = user_prompts
         result["strategies"]["programs"] = programs
 
         # Count signal pools by exchange
         pools = db.query(
             SignalPool.exchange, func.count(SignalPool.id)
-        ).filter(SignalPool.enabled == True).group_by(SignalPool.exchange).all()
+        ).filter(SignalPool.enabled == True, SignalPool.is_deleted != True).group_by(SignalPool.exchange).all()
         for exchange, count in pools:
             result["signal_pools"][exchange or "hyperliquid"] = count
 
@@ -888,7 +1014,7 @@ def execute_diagnose_trader_issues(db: Session, trader_id: int) -> str:
 
     try:
         # Get account
-        account = db.query(Account).filter(Account.id == trader_id).first()
+        account = db.query(Account).filter(Account.id == trader_id, Account.is_deleted != True).first()
         if not account:
             return json.dumps({"error": f"AI Trader with id {trader_id} not found"})
 
@@ -909,11 +1035,13 @@ def execute_diagnose_trader_issues(db: Session, trader_id: int) -> str:
 
         # Check 3: Strategy bound
         prompt_binding = db.query(AccountPromptBinding).filter(
-            AccountPromptBinding.account_id == trader_id
+            AccountPromptBinding.account_id == trader_id,
+            AccountPromptBinding.is_deleted != True
         ).first()
         program_binding = db.query(AccountProgramBinding).filter(
             AccountProgramBinding.account_id == trader_id,
-            AccountProgramBinding.is_active == True
+            AccountProgramBinding.is_active == True,
+            AccountProgramBinding.is_deleted != True
         ).first()
 
         strategy_bound = prompt_binding is not None or program_binding is not None
@@ -1289,7 +1417,8 @@ def execute_list_traders(db: Session, trader_id: int = None) -> str:
     try:
         query = db.query(Account).filter(
             Account.is_active == "true",
-            Account.account_type == "AI"
+            Account.account_type == "AI",
+            Account.is_deleted != True
         )
         if trader_id:
             query = query.filter(Account.id == trader_id)
@@ -1322,7 +1451,8 @@ def execute_list_traders(db: Session, trader_id: int = None) -> str:
             # Prompt binding
             prompt_binding = None
             pb = db.query(AccountPromptBinding).filter(
-                AccountPromptBinding.account_id == acc.id
+                AccountPromptBinding.account_id == acc.id,
+                AccountPromptBinding.is_deleted != True
             ).first()
             if pb:
                 tpl = db.get(PromptTemplate, pb.prompt_template_id)
@@ -1333,7 +1463,8 @@ def execute_list_traders(db: Session, trader_id: int = None) -> str:
 
             # Program bindings
             prog_bindings = db.query(AccountProgramBinding).filter(
-                AccountProgramBinding.account_id == acc.id
+                AccountProgramBinding.account_id == acc.id,
+                AccountProgramBinding.is_deleted != True
             ).all()
             program_bindings = []
             for pgb in prog_bindings:
@@ -1370,7 +1501,7 @@ def execute_list_signal_pools(db: Session, pool_id: int = None) -> str:
     from database.models import SignalPool, SignalDefinition
 
     try:
-        query = db.query(SignalPool)
+        query = db.query(SignalPool).filter(SignalPool.is_deleted != True)
         if pool_id:
             query = query.filter(SignalPool.id == pool_id)
         pools = query.all()
@@ -1401,7 +1532,8 @@ def execute_list_signal_pools(db: Session, pool_id: int = None) -> str:
             signals = []
             for sid in signal_ids:
                 sig = db.query(SignalDefinition).filter(
-                    SignalDefinition.id == sid
+                    SignalDefinition.id == sid,
+                    SignalDefinition.is_deleted != True
                 ).first()
                 if sig:
                     cond = {}
@@ -1454,7 +1586,8 @@ def execute_list_strategies(db: Session, strategy_id: int = None, strategy_type:
                 if not tpl:
                     return json.dumps({"error": f"Prompt {strategy_id} not found"})
                 bindings = db.query(AccountPromptBinding).filter(
-                    AccountPromptBinding.prompt_template_id == tpl.id
+                    AccountPromptBinding.prompt_template_id == tpl.id,
+                    AccountPromptBinding.is_deleted != True
                 ).all()
                 bound_traders = []
                 for b in bindings:
@@ -1470,12 +1603,14 @@ def execute_list_strategies(db: Session, strategy_id: int = None, strategy_type:
                 }, indent=2)
             elif strategy_type == "program":
                 prog = db.query(TradingProgram).filter(
-                    TradingProgram.id == strategy_id
+                    TradingProgram.id == strategy_id,
+                    TradingProgram.is_deleted != True
                 ).first()
                 if not prog:
                     return json.dumps({"error": f"Program {strategy_id} not found"})
                 bindings = db.query(AccountProgramBinding).filter(
-                    AccountProgramBinding.program_id == prog.id
+                    AccountProgramBinding.program_id == prog.id,
+                    AccountProgramBinding.is_deleted != True
                 ).all()
                 bound_traders = []
                 for b in bindings:
@@ -1501,7 +1636,8 @@ def execute_list_strategies(db: Session, strategy_id: int = None, strategy_type:
         prompts = []
         for tpl in templates:
             bindings = db.query(AccountPromptBinding).filter(
-                AccountPromptBinding.prompt_template_id == tpl.id
+                AccountPromptBinding.prompt_template_id == tpl.id,
+                AccountPromptBinding.is_deleted != True
             ).all()
             bound_traders = []
             for b in bindings:
@@ -1516,11 +1652,12 @@ def execute_list_strategies(db: Session, strategy_id: int = None, strategy_type:
             })
 
         # Programs
-        programs_db = db.query(TradingProgram).all()
+        programs_db = db.query(TradingProgram).filter(TradingProgram.is_deleted != True).all()
         programs = []
         for prog in programs_db:
             bindings = db.query(AccountProgramBinding).filter(
-                AccountProgramBinding.program_id == prog.id
+                AccountProgramBinding.program_id == prog.id,
+                AccountProgramBinding.is_deleted != True
             ).all()
             bound_traders = []
             for b in bindings:
@@ -1560,7 +1697,7 @@ def execute_bind_prompt_to_trader(db: Session, trader_id: int, prompt_id: int) -
     from repositories import prompt_repo
 
     try:
-        account = db.query(Account).filter(Account.id == trader_id).first()
+        account = db.query(Account).filter(Account.id == trader_id, Account.is_deleted != True).first()
         if not account:
             return json.dumps({"error": f"AI Trader {trader_id} not found"})
 
@@ -1599,7 +1736,7 @@ def execute_bind_program_to_trader(
     from database.models import Account, TradingProgram, AccountProgramBinding
 
     try:
-        account = db.query(Account).filter(Account.id == trader_id).first()
+        account = db.query(Account).filter(Account.id == trader_id, Account.is_deleted != True).first()
         if not account:
             return json.dumps({"error": f"AI Trader {trader_id} not found"})
 
@@ -1610,7 +1747,8 @@ def execute_bind_program_to_trader(
         # Check duplicate
         existing = db.query(AccountProgramBinding).filter(
             AccountProgramBinding.account_id == trader_id,
-            AccountProgramBinding.program_id == program_id
+            AccountProgramBinding.program_id == program_id,
+            AccountProgramBinding.is_deleted != True
         ).first()
         if existing:
             return json.dumps({
@@ -1658,7 +1796,7 @@ def execute_update_trader_strategy(
     from repositories.strategy_repo import upsert_strategy
 
     try:
-        account = db.query(Account).filter(Account.id == trader_id).first()
+        account = db.query(Account).filter(Account.id == trader_id, Account.is_deleted != True).first()
         if not account:
             return json.dumps({"error": f"AI Trader {trader_id} not found"})
 
@@ -1699,7 +1837,8 @@ def execute_update_ai_trader(
 
     try:
         account = db.query(Account).filter(
-            Account.id == trader_id, Account.is_active == "true"
+            Account.id == trader_id, Account.is_active == "true",
+            Account.is_deleted != True
         ).first()
         if not account:
             return json.dumps({"error": f"AI Trader {trader_id} not found"})
@@ -1770,7 +1909,8 @@ def execute_update_program_binding(
 
     try:
         binding = db.query(AccountProgramBinding).filter(
-            AccountProgramBinding.id == binding_id
+            AccountProgramBinding.id == binding_id,
+            AccountProgramBinding.is_deleted != True
         ).first()
         if not binding:
             return json.dumps({"error": f"Program binding {binding_id} not found"})
@@ -1815,7 +1955,7 @@ def execute_update_signal_pool(
     from database.models import SignalPool, SignalDefinition
 
     try:
-        pool = db.query(SignalPool).filter(SignalPool.id == pool_id).first()
+        pool = db.query(SignalPool).filter(SignalPool.id == pool_id, SignalPool.is_deleted != True).first()
         if not pool:
             return json.dumps({"error": f"Signal pool {pool_id} not found"})
 
@@ -1826,7 +1966,7 @@ def execute_update_signal_pool(
             pool_exchange = pool.exchange or "hyperliquid"
             mismatched = []
             for sid in signal_ids:
-                sig = db.query(SignalDefinition).filter(SignalDefinition.id == sid).first()
+                sig = db.query(SignalDefinition).filter(SignalDefinition.id == sid, SignalDefinition.is_deleted != True).first()
                 if not sig:
                     return json.dumps({"error": f"Signal definition {sid} not found"})
                 sig_exchange = sig.exchange or "hyperliquid"
@@ -1868,7 +2008,7 @@ def execute_update_prompt_binding(db: Session, trader_id: int, prompt_id: int) -
     from repositories import prompt_repo
 
     try:
-        account = db.query(Account).filter(Account.id == trader_id).first()
+        account = db.query(Account).filter(Account.id == trader_id, Account.is_deleted != True).first()
         if not account:
             return json.dumps({"error": f"AI Trader {trader_id} not found"})
 
@@ -1891,7 +2031,57 @@ def execute_update_prompt_binding(db: Session, trader_id: int, prompt_id: int) -
         logger.error(f"[update_prompt_binding] Error: {e}")
         return json.dumps({"error": str(e)})
 
-def execute_hyper_ai_tool(db: Session, tool_name: str, arguments: Dict[str, Any], user_id: int = 1) -> str:
+
+def execute_save_memory(
+    db: Session, category: str, content: str,
+    importance: float = 0.5, api_config: Optional[Dict[str, Any]] = None
+) -> str:
+    """Save a memory with LLM-powered dedup (same logic as compression).
+
+    When api_config is provided, uses batch_dedup_memories to intelligently
+    ADD/UPDATE/DELETE memories. Falls back to simple add if no api_config.
+    """
+    from services.hyper_ai_memory_service import (
+        add_memory, MEMORY_CATEGORIES, enforce_memory_limit,
+        batch_dedup_memories
+    )
+
+    try:
+        if category not in MEMORY_CATEGORIES:
+            return json.dumps({"error": f"Invalid category. Must be one of: {MEMORY_CATEGORIES}"})
+
+        content = content.strip()
+        if len(content) < 10:
+            return json.dumps({"error": "Content must be at least 10 characters"})
+
+        importance = max(0.0, min(1.0, importance))
+
+        new_memory = [{"category": category, "content": content, "importance": importance}]
+
+        if api_config and api_config.get("api_key"):
+            count = batch_dedup_memories(db, new_memory, api_config, source="ai_tool")
+            action = "deduped" if count > 0 else "skipped (redundant)"
+        else:
+            add_memory(db, category, content, source="ai_tool", importance=importance)
+            enforce_memory_limit(db)
+            action = "added"
+
+        return json.dumps({
+            "success": True,
+            "action": action,
+            "note": "Memory processed with intelligent dedup. It will be included in future conversations."
+        }, indent=2)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[save_memory] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_hyper_ai_tool(
+    db: Session, tool_name: str, arguments: Dict[str, Any],
+    user_id: int = 1, api_config: Optional[Dict[str, Any]] = None
+) -> str:
     """Execute a Hyper AI tool by name."""
     try:
         if tool_name == "get_system_overview":
@@ -2073,6 +2263,44 @@ def execute_hyper_ai_tool(db: Session, tool_name: str, arguments: Dict[str, Any]
                 skill_name=arguments.get("skill_name", ""),
                 reference_file=arguments.get("reference_file", "")
             ))
+
+        elif tool_name == "save_memory":
+            return execute_save_memory(
+                db,
+                category=arguments.get("category", "context"),
+                content=arguments.get("content", ""),
+                importance=arguments.get("importance", 0.5),
+                api_config=api_config
+            )
+
+        # --- Delete tools ---
+        elif tool_name == "delete_trader":
+            from services.entity_deletion_service import delete_trader
+            return json.dumps(delete_trader(db, trader_id=arguments.get("trader_id")), indent=2)
+
+        elif tool_name == "delete_prompt_template":
+            from services.entity_deletion_service import delete_prompt_template
+            return json.dumps(delete_prompt_template(db, prompt_id=arguments.get("prompt_id")), indent=2)
+
+        elif tool_name == "delete_signal_definition":
+            from services.entity_deletion_service import delete_signal_definition
+            return json.dumps(delete_signal_definition(db, signal_id=arguments.get("signal_id")), indent=2)
+
+        elif tool_name == "delete_signal_pool":
+            from services.entity_deletion_service import delete_signal_pool
+            return json.dumps(delete_signal_pool(db, pool_id=arguments.get("pool_id")), indent=2)
+
+        elif tool_name == "delete_trading_program":
+            from services.entity_deletion_service import delete_trading_program
+            return json.dumps(delete_trading_program(db, program_id=arguments.get("program_id")), indent=2)
+
+        elif tool_name == "delete_prompt_binding":
+            from services.entity_deletion_service import delete_prompt_binding
+            return json.dumps(delete_prompt_binding(db, binding_id=arguments.get("binding_id")), indent=2)
+
+        elif tool_name == "delete_program_binding":
+            from services.entity_deletion_service import delete_program_binding
+            return json.dumps(delete_program_binding(db, binding_id=arguments.get("binding_id")), indent=2)
 
         # Sub-agent tools are handled directly in hyper_ai_service.py main loop
         # via _execute_tool_with_progress() which uses yield from for progress events.

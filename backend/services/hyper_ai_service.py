@@ -822,7 +822,7 @@ def stream_chat_response(
                         if fn_name in SUBAGENT_TOOL_NAMES:
                             tool_result = yield from execute_subagent_tool(db, fn_name, fn_args, user_id=1)
                         else:
-                            tool_result = execute_hyper_ai_tool(db, fn_name, fn_args, user_id=1)
+                            tool_result = execute_hyper_ai_tool(db, fn_name, fn_args, user_id=1, api_config=llm_config)
 
                         # Emit skill_loaded event so frontend can show skill status
                         if fn_name == "load_skill":
@@ -866,7 +866,7 @@ def stream_chat_response(
                         if fn_name in SUBAGENT_TOOL_NAMES:
                             tool_result = yield from execute_subagent_tool(db, fn_name, fn_args, user_id=1)
                         else:
-                            tool_result = execute_hyper_ai_tool(db, fn_name, fn_args, user_id=1)
+                            tool_result = execute_hyper_ai_tool(db, fn_name, fn_args, user_id=1, api_config=llm_config)
 
                         # Emit skill_loaded event so frontend can show skill status
                         if fn_name == "load_skill":

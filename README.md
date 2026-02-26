@@ -72,6 +72,23 @@ What sets Hyper Alpha Arena apart is its multi-agent AI system. Instead of a sin
 
 Each agent has deep context about its domain and access to relevant tools. Hyper AI can call market data APIs, check positions, and retrieve kline data in real-time—turning natural conversation into actionable trading intelligence.
 
+### Skill System — Zero Learning Curve
+
+Hyper AI comes with built-in Skills: modular, step-by-step workflow guides that walk you through complex tasks. Type a `/command` or just describe what you want—the AI loads the right skill automatically.
+
+| Command | Skill | What it does |
+|---------|-------|-------------|
+| `/prompt` | Prompt Strategy Setup | Guides you through creating an AI-decision trading strategy from scratch |
+| `/program` | Program Strategy Setup | Walks you through building a Python-based trading program |
+| `/market` | Market Analysis | Comprehensive market analysis with multi-source data |
+| `/review` | Performance Review | Analyzes your trading results and suggests optimizations |
+| `/diagnose` | Trader Diagnosis | Systematically diagnoses why a trader isn't triggering |
+| `/resource` | Resource Management | Helps reorganize strategies, rebind signal pools, manage traders |
+| `/health` | System Health Check | Full system status report with actionable recommendations |
+| `/memory` | Memory Management | View, update, or correct what the AI remembers about you |
+
+Each skill follows a checkpoint-based workflow—the AI pauses at key steps to confirm before proceeding. No need to memorize platform concepts or read documentation first.
+
 ## Screenshots
 
 ### Dashboard with Multi-Account Comparison
