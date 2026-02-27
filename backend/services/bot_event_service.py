@@ -79,24 +79,49 @@ def enqueue_system_event(
 
 def _format_event_message(event_type: str, data: Dict[str, Any]) -> str:
     """Format event data into human-readable message."""
+    header = "【🤖 Hyper AI Notification】\n\n"
+
     if event_type == "signal_triggered":
+        pool_name = data.get('pool_name', 'Unknown')
+        symbol = data.get('symbol', 'N/A')
+        triggered = data.get('triggered_signals', [])
+        signals_text = ", ".join(
+            f"{s.get('signal_name', s.get('metric', 'N/A'))}={s.get('current_value', 'N/A'):.4f}"
+            if isinstance(s.get('current_value'), (int, float))
+            else f"{s.get('signal_name', s.get('metric', 'N/A'))}={s.get('current_value', 'N/A')}"
+            for s in triggered[:3]
+        ) if triggered else "N/A"
         return (
-            f"🔔 **Signal Triggered**\n"
-            f"Signal: {data.get('signal_name', 'Unknown')}\n"
-            f"Symbol: {data.get('symbol', 'N/A')}\n"
-            f"Direction: {data.get('direction', 'N/A')}\n"
-            f"Metric: {data.get('metric', 'N/A')} = {data.get('value', 'N/A')}"
+            f"{header}"
+            f"🔔 【{pool_name}】 {symbol} triggered\n"
+            f"{signals_text}"
         )
     elif event_type == "ai_decision":
+        trader = data.get('trader_name', 'AI Trader')
+        op = data.get('operation', 'HOLD')
+        symbol = data.get('symbol', 'N/A')
+        portion = data.get('target_portion', 'N/A')
+        reason = data.get('reason', '')
         return (
-            f"🤖 **AI Trader Decision**\n"
-            f"Action: {data.get('action', 'Unknown')}\n"
-            f"Symbol: {data.get('symbol', 'N/A')}\n"
-            f"Size: {data.get('size', 'N/A')}\n"
-            f"Reason: {data.get('reason', 'N/A')}"
+            f"{header}"
+            f"🤖 【{trader}】 {op} {symbol} {portion}\n"
+            f"{reason}"
+        )
+    elif event_type == "program_decision":
+        program = data.get('program_name', 'Program')
+        op = data.get('operation', 'HOLD')
+        symbol = data.get('symbol', 'N/A')
+        size = data.get('size_usd', 'N/A')
+        leverage = data.get('leverage', '')
+        reason = data.get('reason', '')
+        return (
+            f"{header}"
+            f"⚙️ 【{program}】 {op} {symbol} {size} {leverage}\n"
+            f"{reason}"
         )
     elif event_type == "trade_executed":
         return (
+            f"{header}"
             f"✅ **Trade Executed**\n"
             f"Symbol: {data.get('symbol', 'N/A')}\n"
             f"Side: {data.get('side', 'N/A')}\n"
@@ -104,7 +129,7 @@ def _format_event_message(event_type: str, data: Dict[str, Any]) -> str:
             f"Price: {data.get('price', 'N/A')}"
         )
     else:
-        return f"📢 {event_type}: {data.get('message', str(data))}"
+        return f"{header}📢 {event_type}: {data.get('message', str(data))}"
 
 
 async def push_event_to_all_channels(
@@ -112,19 +137,28 @@ async def push_event_to_all_channels(
     event_results: List[Dict[str, Any]]
 ):
     """
-    Push broadcast: send event notification to ALL bound channels.
+    Push broadcast: send event notification to ALL bound channels on ALL connected platforms.
     Called after enqueue_system_event to notify users on Telegram/Discord.
     """
-    from services.bot_service import get_decrypted_bot_token
+    from database.models import BotConfig
 
-    for result in event_results:
-        platform = result.get("platform")
-        content = result.get("content", "")
+    if not event_results:
+        return
 
-        if platform == "telegram":
+    # Get content from first result (all results have the same content)
+    content = event_results[0].get("content", "")
+    if not content:
+        return
+
+    # Query all connected platforms
+    configs = db.query(BotConfig).filter(BotConfig.status == "connected").all()
+
+    for config in configs:
+        if config.platform == "telegram":
             await _push_to_telegram(db, content)
-        elif platform == "discord":
-            pass  # Discord push not implemented yet
+        elif config.platform == "discord":
+            # TODO: Implement Discord push
+            pass
 
 
 async def _push_to_telegram(db: Session, content: str):
@@ -143,17 +177,6 @@ async def _push_to_telegram(db: Session, content: str):
     ).first()
     if not config:
         return
-
-    # Parse chat_ids from a JSON field (stored when users message the bot)
-    import json
-    chat_ids = []
-    try:
-        if config.error_message and config.error_message.startswith("["):
-            # Reuse error_message field temporarily for chat_ids
-            # TODO: Add proper chat_ids field to BotConfig
-            pass
-    except Exception:
-        pass
 
     # For now, we store chat_ids in a separate tracking mechanism
     # This will be populated when users first message the bot

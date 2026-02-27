@@ -1508,6 +1508,12 @@
     "connectBot": "Connect Bot",
     "manageTelegram": "Manage Telegram Bot",
     "manageDesc": "Your bot is connected. You can change it below.",
-    "changeBot": "Change Bot"
+    "changeBot": "Change Bot",
+    "notificationSettings": "Push Notifications",
+    "notificationDesc": "Configure which events trigger push notifications to your connected bots.",
+    "aiTraderNotif": "AI Trader Decisions",
+    "programTraderNotif": "Program Trader Decisions",
+    "signalPoolsNotif": "Signal Pools",
+    "noSignalPools": "No signal pools configured."
   }
 }

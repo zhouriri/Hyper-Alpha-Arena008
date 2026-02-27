@@ -2414,6 +2414,30 @@ def save_ai_decision(
             # Don't fail the save operation if broadcast fails
             logger.warning(f"Failed to broadcast AI decision update: {broadcast_err}")
 
+        # Bot push notification for AI Trader decisions
+        try:
+            from api.bot_routes import get_notification_config_dict
+            from services.bot_event_service import enqueue_system_event, push_event_to_all_channels
+            notif_config = get_notification_config_dict(db)
+            if notif_config.get("ai_trader", True):
+                event_data = {
+                    "trader_name": account.name,
+                    "operation": operation.upper() if operation else "HOLD",
+                    "symbol": symbol or "N/A",
+                    "target_portion": f"{target_portion:.1%}" if target_portion else "0%",
+                    "price": "market",
+                    "reason": reason[:100] if reason else "",
+                }
+                results = enqueue_system_event(db, "ai_decision", event_data)
+                if results:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(push_event_to_all_channels(db, results))
+                    except RuntimeError:
+                        asyncio.run(push_event_to_all_channels(db, results))
+        except Exception as notif_err:
+            logger.warning(f"Failed to send bot notification: {notif_err}")
+
     except Exception as err:
         logger.error(f"Failed to save AI decision log: {err}")
         db.rollback()

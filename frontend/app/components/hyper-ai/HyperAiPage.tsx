@@ -49,6 +49,7 @@ import {
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
 import BotIntegrationModal from './BotIntegrationModal'
+import NotificationConfigModal from './NotificationConfigModal'
 
 interface Conversation {
   id: number
@@ -468,6 +469,15 @@ function DiscordSmallIcon() {
   )
 }
 
+function NotificationBellSmallIcon() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 1024 1024" fill="currentColor">
+      <path d="M512 0c282.666667 0 512 229.333333 512 512S794.666667 1024 512 1024 0 794.666667 0 512 229.333333 0 512 0z" fill="#2E74EE" opacity=".12" />
+      <path d="M505.6 771.2L309.333333 611.2h-29.866666c-19.2 0-34.133333-14.933333-34.133334-34.133333V442.666667c0-19.2 14.933333-33.066667 34.133334-33.066667h36.266666l188.8-155.733333s48-30.933333 48 26.666666v462.933334c0 36.266667-20.266667 38.4-34.133333 34.133333-8.533333-2.133333-12.8-6.4-12.8-6.4z m117.333333-160c-6.4 0-12.8-2.133333-17.066666-7.466667-8.533333-9.6-7.466667-24.533333 2.133333-32 17.066667-14.933333 26.666667-36.266667 26.666667-58.666666s-9.6-43.733333-25.6-58.666667c-9.6-8.533333-9.6-23.466667-2.133334-32 8.533333-9.6 22.4-10.666667 32-2.133333 25.6 23.466667 40.533333 57.6 40.533334 92.8 0 35.2-14.933333 69.333333-41.6 92.8-4.266667 3.2-9.6 5.333333-14.933334 5.333333z m21.333334 88.533333c-8.533333 0-17.066667-5.333333-21.333334-13.866666-4.266667-11.733333 1.066667-24.533333 12.8-28.8 58.666667-23.466667 97.066667-77.866667 97.066667-139.733334s-38.4-116.266667-98.133333-139.733333c-11.733333-4.266667-17.066667-18.133333-12.8-28.8s18.133333-17.066667 29.866666-12.8c37.333333 14.933333 68.266667 39.466667 90.666667 70.4 23.466667 33.066667 35.2 70.4 35.2 110.933333 0 39.466667-11.733333 77.866667-35.2 109.866667-22.4 32-53.333333 56.533333-90.666667 70.4-2.133333 1.066667-4.266667 2.133333-7.466666 2.133333z" fill="#2E74EE" />
+    </svg>
+  )
+}
+
 function WelcomeMessage({ nickname, t }: { nickname?: string; t: any }) {
   const greeting = nickname
     ? t('hyperAi.welcomeWithName', { name: nickname, defaultValue: `你好，${nickname}！我是 Hyper AI，你的专属交易助手。` })
@@ -516,6 +526,8 @@ export default function HyperAiPage() {
   const [pendingSkillToggles, setPendingSkillToggles] = useState<Record<string, boolean>>({})
   const [showBotModal, setShowBotModal] = useState(false)
   const [botConfig, setBotConfig] = useState<{ platform: string; bot_username: string | null; status: string } | null>(null)
+  const [showNotificationModal, setShowNotificationModal] = useState(false)
+  const [notificationCount, setNotificationCount] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -528,6 +540,7 @@ export default function HyperAiPage() {
     fetchProfile()
     fetchSkills()
     fetchBotConfig()
+    fetchNotificationConfig()
   }, [])
 
   useEffect(() => {
@@ -548,6 +561,21 @@ export default function HyperAiPage() {
       setBotConfig(data.config || null)
     } catch (e) {
       console.error('Failed to fetch bot config:', e)
+    }
+  }
+
+  const fetchNotificationConfig = async () => {
+    try {
+      const res = await fetch('/api/bot/notification-config')
+      const data = await res.json()
+      const cfg = data.config || { ai_trader: true, program_trader: true, signal_pools: {} }
+      let count = 0
+      if (cfg.ai_trader) count++
+      if (cfg.program_trader) count++
+      count += Object.values(cfg.signal_pools as Record<string, boolean>).filter(Boolean).length
+      setNotificationCount(count)
+    } catch (e) {
+      console.error('Failed to fetch notification config:', e)
     }
   }
 
@@ -1153,6 +1181,18 @@ export default function HyperAiPage() {
             <h4 className="text-sm font-medium flex items-center gap-1.5 mb-2">
               <Blocks className="w-4 h-4 shrink-0" />
               {t('hyperAi.integrations', 'Integrations')}
+              <button
+                onClick={() => setShowNotificationModal(true)}
+                className="ml-auto flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
+                title={t('bot.notificationSettings', 'Push Notifications')}
+              >
+                <NotificationBellSmallIcon />
+                {notificationCount > 0 && (
+                  <span className="text-[10px] text-primary font-medium min-w-[14px] text-center">
+                    {notificationCount}
+                  </span>
+                )}
+              </button>
             </h4>
             <div className="space-y-2">
               {/* Telegram Bot */}
@@ -1208,6 +1248,13 @@ export default function HyperAiPage() {
         platform="telegram"
         onConnected={fetchBotConfig}
         currentBotUsername={botConfig?.status === 'connected' ? botConfig.bot_username : undefined}
+      />
+
+      {/* Notification Config Modal */}
+      <NotificationConfigModal
+        open={showNotificationModal}
+        onClose={() => setShowNotificationModal(false)}
+        onConfigChange={(count) => setNotificationCount(count)}
       />
     </div>
   )

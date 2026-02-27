@@ -1528,6 +1528,12 @@
     "connectBot": "连接机器人",
     "manageTelegram": "管理 Telegram 机器人",
     "manageDesc": "机器人已连接。你可以在下方更换。",
-    "changeBot": "更换机器人"
+    "changeBot": "更换机器人",
+    "notificationSettings": "推送通知",
+    "notificationDesc": "配置哪些事件会触发推送通知到你连接的机器人。",
+    "aiTraderNotif": "AI 交易员决策",
+    "programTraderNotif": "程序交易员决策",
+    "signalPoolsNotif": "信号池",
+    "noSignalPools": "暂无配置信号池。"
   }
 }

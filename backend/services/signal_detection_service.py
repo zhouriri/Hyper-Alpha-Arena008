@@ -176,7 +176,40 @@ class SignalDetectionService:
     def _notify_callbacks(self, symbol: str, pool_trigger: dict, market_data: Dict[str, Any]) -> None:
         """Notify all registered callbacks about a signal pool trigger."""
         pool_name = pool_trigger.get("pool_name", "Unknown")
+        pool_id = pool_trigger.get("pool_id")
         print(f"[SignalDetection] _notify_callbacks called for pool {pool_name}, callbacks count: {len(self._trigger_callbacks)}")
+
+        # Bot push notification for signal pool triggers
+        try:
+            from database.connection import SessionLocal
+            from api.bot_routes import get_notification_config_dict
+            from services.bot_event_service import enqueue_system_event, push_event_to_all_channels
+            import asyncio
+            db = SessionLocal()
+            try:
+                notif_config = get_notification_config_dict(db)
+                signal_pools_config = notif_config.get("signal_pools", {})
+                # Check if this specific pool has notification enabled
+                pool_id_str = str(pool_id) if pool_id else None
+                if pool_id_str and signal_pools_config.get(pool_id_str, False):
+                    triggered_signals = pool_trigger.get("signals_triggered", [])
+                    event_data = {
+                        "pool_name": pool_name,
+                        "pool_id": pool_id,
+                        "symbol": symbol,
+                        "triggered_signals": triggered_signals,
+                    }
+                    results = enqueue_system_event(db, "signal_triggered", event_data)
+                    if results:
+                        try:
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(push_event_to_all_channels(db, results))
+                        except RuntimeError:
+                            asyncio.run(push_event_to_all_channels(db, results))
+            finally:
+                db.close()
+        except Exception as notif_err:
+            logger.warning(f"Failed to send bot notification for signal pool: {notif_err}")
 
         if not self._trigger_callbacks:
             print("[SignalDetection] No callbacks registered, skipping notification!")

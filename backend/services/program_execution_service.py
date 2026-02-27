@@ -663,6 +663,33 @@ class ProgramExecutionService:
             db.add(log)
             db.commit()
             db.refresh(log)
+
+            # Bot push notification for Program Trader decisions
+            if result.success and decision and decision.operation.lower() != "hold":
+                try:
+                    from api.bot_routes import get_notification_config_dict
+                    from services.bot_event_service import enqueue_system_event, push_event_to_all_channels
+                    import asyncio
+                    notif_config = get_notification_config_dict(db)
+                    if notif_config.get("program_trader", True):
+                        event_data = {
+                            "program_name": binding.program.name if binding.program else "Unknown",
+                            "operation": decision.operation.upper(),
+                            "symbol": decision.symbol or symbol,
+                            "size_usd": f"{decision.target_portion_of_balance*100:.0f}%" if decision.target_portion_of_balance else "N/A",
+                            "leverage": f"{decision.leverage}x" if decision.leverage else "N/A",
+                            "reason": decision.reason[:100] if decision.reason else "",
+                        }
+                        results = enqueue_system_event(db, "program_decision", event_data)
+                        if results:
+                            try:
+                                loop = asyncio.get_running_loop()
+                                loop.create_task(push_event_to_all_channels(db, results))
+                            except RuntimeError:
+                                asyncio.run(push_event_to_all_channels(db, results))
+                except Exception as notif_err:
+                    logger.warning(f"[ProgramExecution] Failed to send bot notification: {notif_err}")
+
             return log.id
         except Exception as e:
             logger.error(f"[ProgramExecution] Failed to log execution: {e}")
