@@ -182,6 +182,13 @@ def on_startup():
     # Create tables
     Base.metadata.create_all(bind=engine)
 
+    # Run all migrations (idempotent - safe to run every startup)
+    try:
+        from database.migration_manager import run_all_migrations
+        run_all_migrations()
+    except Exception as e:
+        print(f"[startup] Migration error (non-fatal): {e}")
+
     # Run schema validator to auto-fix missing columns
     try:
         from database.schema_validator import validate_and_sync_schema

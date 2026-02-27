@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, BigInteger, String, DECIMAL, TIMESTAMP, ForeignKey, UniqueConstraint, Float, Date, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 import datetime
 
 from .connection import Base
@@ -66,7 +66,7 @@ class Account(Base):
     show_on_dashboard = Column(Boolean, nullable=False, default=True)  # Show/hide on Dashboard views
 
     # Soft delete
-    is_deleted = Column(Boolean, nullable=False, default=False)
+    is_deleted = Column(Boolean, nullable=False, server_default=text('false'))
     deleted_at = Column(TIMESTAMP, nullable=True)
 
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
@@ -410,7 +410,7 @@ class AccountPromptBinding(Base):
     updated_by = Column(String(100), nullable=True)
 
     # Soft delete
-    is_deleted = Column(Boolean, nullable=False, default=False)
+    is_deleted = Column(Boolean, nullable=False, server_default=text('false'))
     deleted_at = Column(TIMESTAMP, nullable=True)
 
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
@@ -1020,7 +1020,7 @@ class SignalDefinition(Base):
     exchange = Column(String(20), nullable=False, default="hyperliquid")
 
     # Soft delete
-    is_deleted = Column(Boolean, nullable=False, default=False)
+    is_deleted = Column(Boolean, nullable=False, server_default=text('false'))
     deleted_at = Column(TIMESTAMP, nullable=True)
 
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
@@ -1041,7 +1041,7 @@ class SignalPool(Base):
     exchange = Column(String(20), nullable=False, default="hyperliquid")
 
     # Soft delete
-    is_deleted = Column(Boolean, nullable=False, default=False)
+    is_deleted = Column(Boolean, nullable=False, server_default=text('false'))
     deleted_at = Column(TIMESTAMP, nullable=True)
 
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
@@ -1207,7 +1207,7 @@ class TradingProgram(Base):
     last_backtest_at = Column(TIMESTAMP, nullable=True)
 
     # Soft delete
-    is_deleted = Column(Boolean, nullable=False, default=False)
+    is_deleted = Column(Boolean, nullable=False, server_default=text('false'))
     deleted_at = Column(TIMESTAMP, nullable=True)
 
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
@@ -1243,7 +1243,7 @@ class AccountProgramBinding(Base):
     exchange = Column(String(20), nullable=False, default="hyperliquid")
 
     # Soft delete
-    is_deleted = Column(Boolean, nullable=False, default=False)
+    is_deleted = Column(Boolean, nullable=False, server_default=text('false'))
     deleted_at = Column(TIMESTAMP, nullable=True)
 
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
