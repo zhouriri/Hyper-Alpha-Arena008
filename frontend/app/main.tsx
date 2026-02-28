@@ -105,7 +105,7 @@ function App() {
   const [aiDecisions, setAiDecisions] = useState<AIDecision[]>([])
   const [allAssetCurves, setAllAssetCurves] = useState<any[]>([])
   const [hyperliquidRefreshKey, setHyperliquidRefreshKey] = useState(0)
-  const [currentPage, setCurrentPage] = useState<string>('comprehensive')
+  const [currentPage, setCurrentPage] = useState<string>('hyper-ai')
   const tradingModeRef = useRef(tradingMode)
 
   /**

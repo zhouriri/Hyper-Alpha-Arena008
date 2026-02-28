@@ -1433,6 +1433,11 @@
     "capability3": "Manage AI traders and wallet configurations",
     "capability4": "Analyze market data and trading performance",
     "welcomePrompt": "Feel free to ask me anything.",
+    "defaultSuggestions": {
+      "intro": "What can you help me with?",
+      "setup": "Guide me through the initial setup",
+      "first": "I want to create my first trading strategy"
+    },
     "connecting": "Connecting...",
     "calling": "Calling",
     "gotResult": "Got result from",

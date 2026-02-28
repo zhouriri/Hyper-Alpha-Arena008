@@ -1,4 +1,4 @@
-import { BarChart3, FileText, NotebookPen, Coins, MessageSquare, Mail, Bot } from 'lucide-react'
+import { BarChart3, FileText, NotebookPen, Coins, MessageSquare, Mail, Bot, Ghost, ScrollText, Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import ContactDialog from '@/components/contact/ContactDialog'
 
@@ -110,9 +110,9 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
   const desktopNav = [
     { label: t('hyperAi.title', 'Hyper AI'), page: 'hyper-ai', icon: Bot },
     { label: t('sidebar.dashboard'), page: 'comprehensive', icon: BarChart3 },
-    { label: t('sidebar.aiTrader', 'AI Trader'), page: 'trader-management', icon: AITraderIcon },
+    { label: t('sidebar.aiTrader', 'AI Trader'), page: 'trader-management', icon: Ghost },
     { label: t('sidebar.prompts', 'Prompts'), page: 'prompt-management', icon: NotebookPen },
-    { label: t('sidebar.programTrader', 'Program Trader'), page: 'program-trader', icon: ProgramTraderIcon },
+    { label: t('sidebar.programTrader', 'Program Trader'), page: 'program-trader', icon: ScrollText },
     { label: t('sidebar.signals', 'Signals'), page: 'signal-management', icon: SignalIcon },
     { label: t('sidebar.attribution', 'Attribution'), page: 'attribution', icon: AttributionIcon },
     { label: t('sidebar.manualTrading', 'Manual Trading'), page: 'hyperliquid', icon: Coins },
@@ -134,7 +134,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
               <button
                 key={item.page}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive ? 'bg-secondary/80 text-secondary-foreground' : 'hover:bg-muted text-muted-foreground'
+                  isActive ? 'bg-secondary/80 text-[#B8860B]' : 'hover:text-[#B8860B] text-muted-foreground'
                 }`}
                 onClick={() => onPageChange?.(item.page)}
                 title={item.label}
@@ -146,7 +146,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           })}
 
           <button
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-muted text-muted-foreground"
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:text-[#B8860B] text-muted-foreground"
             onClick={() => window.open('https://www.akooi.com/docs/guide/getting-started.html', '_blank', 'noopener,noreferrer')}
             title={t('sidebar.howToUse', 'How to Use')}
           >
@@ -156,7 +156,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
 
           <ContactDialog>
             <button
-              className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-muted text-muted-foreground"
+              className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:text-[#B8860B] text-muted-foreground"
               title={t('contact.contactAuthor', 'Contact Author')}
             >
               <Mail className="w-5 h-5 flex-shrink-0" />
@@ -167,12 +167,12 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           {/* Settings */}
           <button
             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              currentPage === 'settings' ? 'bg-secondary/80 text-secondary-foreground' : 'hover:bg-muted text-muted-foreground'
+              currentPage === 'settings' ? 'bg-secondary/80 text-[#B8860B]' : 'hover:text-[#B8860B] text-muted-foreground'
             }`}
             onClick={() => onPageChange?.('settings')}
             title={t('sidebar.settings', 'Settings')}
           >
-            <SettingsIcon className="w-5 h-5 flex-shrink-0" />
+            <Settings className="w-5 h-5 flex-shrink-0" />
             <span>{t('sidebar.settings', 'Settings')}</span>
           </button>
         </nav>

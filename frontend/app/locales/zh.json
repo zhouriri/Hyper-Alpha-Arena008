@@ -1453,6 +1453,11 @@
     "capability3": "管理 AI 交易员和钱包配置",
     "capability4": "分析市场数据和交易表现",
     "welcomePrompt": "有什么想了解的，直接问我就行。",
+    "defaultSuggestions": {
+      "intro": "介绍一下你能帮我做什么",
+      "setup": "带我完成初始设置",
+      "first": "我想创建第一个交易策略"
+    },
     "connecting": "连接中...",
     "calling": "正在调用",
     "gotResult": "获取结果",

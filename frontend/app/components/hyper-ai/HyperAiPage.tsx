@@ -490,10 +490,45 @@ function NotificationBellSmallIcon() {
   )
 }
 
-function WelcomeMessage({ nickname, t }: { nickname?: string; t: any }) {
+function WelcomeMessage({
+  nickname,
+  t,
+  onSuggestionClick
+}: {
+  nickname?: string
+  t: any
+  onSuggestionClick: (question: string) => void
+}) {
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [isNewUser, setIsNewUser] = useState(true)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/hyper-ai/suggestions')
+      .then(res => res.json())
+      .then(data => {
+        setSuggestions(data.suggestions || [])
+        setIsNewUser(data.is_new_user ?? true)
+      })
+      .catch(() => {
+        setSuggestions([])
+        setIsNewUser(true)
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
   const greeting = nickname
     ? t('hyperAi.welcomeWithName', { name: nickname, defaultValue: `你好，${nickname}！我是 Hyper AI，你的专属交易助手。` })
     : t('hyperAi.welcomeNoName', '你好！我是 Hyper AI，Hyper Alpha Arena 的智能助手。')
+
+  // Default suggestions for new users (follows i18n)
+  const defaultSuggestions = [
+    t('hyperAi.defaultSuggestions.intro', 'What can you help me with?'),
+    t('hyperAi.defaultSuggestions.setup', 'Guide me through the initial setup'),
+    t('hyperAi.defaultSuggestions.first', 'I want to create my first trading strategy'),
+  ]
+
+  const displaySuggestions = (isNewUser || suggestions.length === 0) ? defaultSuggestions : suggestions
 
   return (
     <div className="flex flex-col items-center justify-center h-full text-center px-4">
@@ -511,6 +546,21 @@ function WelcomeMessage({ nickname, t }: { nickname?: string; t: any }) {
         </ul>
         <p className="mt-4">{t('hyperAi.welcomePrompt', '有什么想了解的，直接问我就行。')}</p>
       </div>
+
+      {/* Suggestion buttons */}
+      {!loading && displaySuggestions.length > 0 && (
+        <div className="mt-6 space-y-2 w-full max-w-md">
+          {displaySuggestions.map((question, idx) => (
+            <button
+              key={idx}
+              onClick={() => onSuggestionClick(question)}
+              className="w-full px-4 py-3 text-left text-sm rounded-lg border border-border bg-card hover:bg-accent hover:border-primary/50 transition-colors"
+            >
+              {question}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1011,7 +1061,14 @@ export default function HyperAiPage() {
       {/* Center: Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {messages.length === 0 ? (
-          <WelcomeMessage nickname={nickname} t={t} />
+          <WelcomeMessage
+            nickname={nickname}
+            t={t}
+            onSuggestionClick={(question) => {
+              setInputValue(question)
+              setTimeout(() => handleSend(), 100)
+            }}
+          />
         ) : (
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-4 max-w-5xl mx-auto">

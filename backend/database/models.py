@@ -1474,6 +1474,12 @@ class HyperAiProfile(Base):
     # NULL = all skills enabled (default for new/existing users)
     enabled_skills = Column(Text, nullable=True)
 
+    # Suggested questions for welcome screen (lazy-updated cache)
+    # Format: JSON array of 3 questions, e.g. ["How is my BTC Trader doing?", ...]
+    # Updated asynchronously when user visits Hyper AI page and cache > 6 hours old
+    suggested_questions = Column(Text, nullable=True)
+    suggested_questions_at = Column(TIMESTAMP, nullable=True)
+
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 

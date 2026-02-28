@@ -212,6 +212,16 @@ def save_preferences(request: PreferencesRequest, db: Session = Depends(get_db))
     }
 
 
+@router.get("/suggestions")
+def get_suggestions(db: Session = Depends(get_db)):
+    """
+    Get suggested questions for welcome screen.
+    Returns cached suggestions or triggers async update if stale (>6 hours).
+    For new users (no conversations), returns is_new_user=True.
+    """
+    from services.hyper_ai_service import get_or_update_suggestions
+    return get_or_update_suggestions(db)
+
 @router.get("/conversations")
 def list_conversations(
     limit: int = Query(20, ge=1, le=100),
