@@ -17,6 +17,21 @@ trades as expected. Follow a structured checklist approach.
 
 ## Workflow
 
+### Phase 0: Environment and Data Foundation Check
+
+Before diagnosing the trader itself, verify the system foundation:
+
+1. **Check trading environment**: `get_trading_environment()`
+   - Confirm it matches what user expects (testnet vs mainnet)
+   - If mismatch, guide user to switch via UI top-right mode switcher
+
+2. **Check watchlist**: `get_watchlist()`
+   - Verify the symbol(s) the trader's signal pools monitor are in the watchlist
+   - If using default config (only BTC), warn user that other symbols have no data
+   - If target symbol missing, use `update_watchlist()` to add it (after user confirmation)
+
+→ [CHECKPOINT] Report environment and watchlist status. If issues found here, they are ROOT CAUSES — fix them first before proceeding.
+
 ### Phase 1: Full Diagnostic Scan
 
 Run comprehensive diagnosis: `diagnose_trader_issues(trader_id)`

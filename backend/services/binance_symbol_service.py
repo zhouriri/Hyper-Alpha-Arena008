@@ -26,8 +26,6 @@ SYMBOL_REFRESH_TASK_ID = "binance_symbol_refresh"
 
 DEFAULT_SYMBOLS: List[Dict[str, str]] = [
     {"symbol": "BTC", "name": "Bitcoin"},
-    {"symbol": "ETH", "name": "Ethereum"},
-    {"symbol": "SOL", "name": "Solana"},
 ]
 
 BINANCE_FUTURES_API = "https://fapi.binance.com/fapi/v1/exchangeInfo"

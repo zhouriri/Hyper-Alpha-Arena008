@@ -13,6 +13,22 @@ actionable recommendations.
 
 ## Workflow
 
+### Phase 0: Foundation Check (Environment & Watchlist)
+
+Before checking components, verify the system foundation:
+
+1. **Trading Environment**: Use `get_trading_environment()`
+   - Confirm current mode (testnet/mainnet)
+   - Remind user this affects all operations
+
+2. **Watchlist Configuration**: Use `get_watchlist()`
+   - Check if user is still using default watchlist (only BTC)
+   - If yes, flag as **Warning**: "Using default watchlist — only BTC data is being collected"
+   - List symbols currently being monitored for each exchange
+   - Check if any signal pools reference symbols NOT in the watchlist
+
+→ [CHECKPOINT] Report environment and watchlist status. Flag warnings if using defaults.
+
 ### Phase 1: System Overview
 
 Gather baseline data using `get_system_overview`:

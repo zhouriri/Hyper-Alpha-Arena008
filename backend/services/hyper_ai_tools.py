@@ -174,6 +174,53 @@ HYPER_AI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_trading_environment",
+            "description": "Get current global trading environment (testnet/mainnet). This affects which wallets and data sources are used system-wide.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_watchlist",
+            "description": "Get symbol watchlist configuration for all exchanges. Shows which symbols are being monitored for data collection and trading. Also indicates if user is still using default symbols.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_watchlist",
+            "description": "Update symbol watchlist for a specific exchange. IMPORTANT: Always call get_watchlist first to show current config and get user confirmation before updating.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "exchange": {
+                        "type": "string",
+                        "enum": ["hyperliquid", "binance"],
+                        "description": "Exchange to update watchlist for"
+                    },
+                    "symbols": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of symbols to monitor (e.g., ['BTC', 'ETH', 'SOL']). Max 10 symbols."
+                    }
+                },
+                "required": ["exchange", "symbols"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "diagnose_trader_issues",
             "description": "Check why an AI Trader is not triggering and provide actionable suggestions.",
             "parameters": {
@@ -1002,6 +1049,102 @@ def execute_get_contact_config() -> str:
         "telegram": {"url": "https://t.me/+RqxjT7Gttm9hOGEx", "enabled": True},
         "github": {"url": "https://github.com/HammerGPT/Hyper-Alpha-Arena", "enabled": True}
     }, indent=2)
+
+
+def execute_get_trading_environment(db: Session) -> str:
+    """Get current global trading environment."""
+    from services.hyperliquid_environment import get_global_trading_mode
+
+    try:
+        environment = get_global_trading_mode(db)
+        return json.dumps({
+            "current_environment": environment,
+            "description": "testnet" if environment == "testnet" else "mainnet (real money)",
+            "note": "Environment affects which wallets are used and which exchange endpoints are called. To switch, use the mode switcher in the top-right of the UI."
+        }, indent=2)
+    except Exception as e:
+        logger.error(f"[get_trading_environment] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_get_watchlist(db: Session) -> str:
+    """Get symbol watchlist for all exchanges."""
+    from services import hyperliquid_symbol_service, binance_symbol_service
+
+    try:
+        # Get Hyperliquid watchlist
+        hl_selected = hyperliquid_symbol_service.get_selected_symbols()
+        hl_default = [s["symbol"] for s in hyperliquid_symbol_service.DEFAULT_SYMBOLS]
+        hl_is_default = set(hl_selected) == set(hl_default)
+
+        # Get Binance watchlist
+        bn_selected = binance_symbol_service.get_selected_symbols()
+        bn_default = [s["symbol"] for s in binance_symbol_service.DEFAULT_SYMBOLS]
+        bn_is_default = set(bn_selected) == set(bn_default)
+
+        result = {
+            "hyperliquid": {
+                "symbols": hl_selected,
+                "is_default_config": hl_is_default,
+                "default_symbols": hl_default,
+                "max_symbols": hyperliquid_symbol_service.MAX_WATCHLIST_SYMBOLS
+            },
+            "binance": {
+                "symbols": bn_selected,
+                "is_default_config": bn_is_default,
+                "default_symbols": bn_default,
+                "max_symbols": binance_symbol_service.MAX_WATCHLIST_SYMBOLS
+            },
+            "note": "Watchlist determines which symbols the system collects data for (K-lines, OI, CVD, funding). If you want to trade a symbol, it must be in the watchlist first."
+        }
+
+        # Add warning if using defaults
+        warnings = []
+        if hl_is_default:
+            warnings.append("Hyperliquid watchlist is using default config (only BTC). Consider adding symbols you want to trade.")
+        if bn_is_default:
+            warnings.append("Binance watchlist is using default config (only BTC). Consider adding symbols you want to trade.")
+        if warnings:
+            result["warnings"] = warnings
+
+        return json.dumps(result, indent=2)
+
+    except Exception as e:
+        logger.error(f"[get_watchlist] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_update_watchlist(db: Session, exchange: str, symbols: List[str]) -> str:
+    """Update symbol watchlist for a specific exchange."""
+    from services import hyperliquid_symbol_service, binance_symbol_service
+
+    try:
+        if exchange not in ["hyperliquid", "binance"]:
+            return json.dumps({"error": "exchange must be 'hyperliquid' or 'binance'"})
+
+        if not symbols or not isinstance(symbols, list):
+            return json.dumps({"error": "symbols must be a non-empty list"})
+
+        # Normalize symbols to uppercase
+        symbols = [s.upper() for s in symbols]
+
+        if exchange == "hyperliquid":
+            updated = hyperliquid_symbol_service.update_selected_symbols(symbols)
+        else:
+            updated = binance_symbol_service.update_selected_symbols(symbols)
+
+        return json.dumps({
+            "success": True,
+            "exchange": exchange,
+            "updated_symbols": updated,
+            "note": "Watchlist updated. Data collection will now include these symbols. It may take a few minutes for historical data to be backfilled."
+        }, indent=2)
+
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:
+        logger.error(f"[update_watchlist] Error: {e}")
+        return json.dumps({"error": str(e)})
 
 
 def execute_diagnose_trader_issues(db: Session, trader_id: int) -> str:
@@ -2143,6 +2286,19 @@ def execute_hyper_ai_tool(
 
         elif tool_name == "get_contact_config":
             return execute_get_contact_config()
+
+        elif tool_name == "get_trading_environment":
+            return execute_get_trading_environment(db)
+
+        elif tool_name == "get_watchlist":
+            return execute_get_watchlist(db)
+
+        elif tool_name == "update_watchlist":
+            return execute_update_watchlist(
+                db,
+                exchange=arguments.get("exchange"),
+                symbols=arguments.get("symbols", [])
+            )
 
         elif tool_name == "diagnose_trader_issues":
             return execute_diagnose_trader_issues(db, trader_id=arguments.get("trader_id"))
