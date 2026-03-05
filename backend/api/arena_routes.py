@@ -965,6 +965,8 @@ def get_model_chat(
     trading_mode: Optional[str] = Query(None, regex="^(paper|testnet|mainnet)$"),
     wallet_address: Optional[str] = Query(None),
     before_time: Optional[str] = Query(None, description="ISO format timestamp for cursor-based pagination"),
+    after_time: Optional[str] = Query(None, description="ISO format UTC timestamp, return records after this time"),
+    operation: Optional[str] = Query(None, regex="^(buy|sell|hold|close)$", description="Filter by operation type"),
     include_snapshots: bool = Query(False, description="Include prompt/reasoning/decision snapshots (heavy data)"),
     symbol: Optional[str] = Query(None),
     ids: Optional[str] = Query(None, description="Comma-separated list of decision IDs to fetch"),
@@ -1000,6 +1002,18 @@ def get_model_chat(
             query = query.filter(AIDecisionLog.decision_time < before_dt)
         except (ValueError, AttributeError) as e:
             logger.warning(f"Invalid before_time parameter: {before_time}, error: {e}")
+
+    # Time range filter: only get records after the specified time
+    if after_time:
+        try:
+            after_dt = datetime.fromisoformat(after_time.replace('Z', '+00:00'))
+            query = query.filter(AIDecisionLog.decision_time >= after_dt)
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Invalid after_time parameter: {after_time}, error: {e}")
+
+    # Filter by operation type (buy/sell/hold/close)
+    if operation:
+        query = query.filter(AIDecisionLog.operation == operation)
 
     if symbol:
         query = query.filter(AIDecisionLog.symbol == symbol)

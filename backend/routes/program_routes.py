@@ -1523,6 +1523,8 @@ def list_executions(
     program_id: Optional[int] = Query(None),
     environment: Optional[str] = Query(None, regex="^(testnet|mainnet)$"),
     before: Optional[str] = Query(None, description="ISO timestamp for pagination, returns logs before this time"),
+    after: Optional[str] = Query(None, description="ISO timestamp, returns logs after this time"),
+    action: Optional[str] = Query(None, regex="^(buy|sell|hold|close)$", description="Filter by decision action"),
     limit: int = Query(50, le=200),
     exchange: Optional[str] = Query(None, regex="^(hyperliquid|binance)$"),
     db: Session = Depends(get_db)
@@ -1540,6 +1542,12 @@ def list_executions(
         from datetime import datetime
         before_dt = datetime.fromisoformat(before.replace('Z', '+00:00'))
         query = query.filter(ProgramExecutionLog.created_at < before_dt)
+    if after:
+        from datetime import datetime as dt_after
+        after_dt = dt_after.fromisoformat(after.replace('Z', '+00:00'))
+        query = query.filter(ProgramExecutionLog.created_at >= after_dt)
+    if action:
+        query = query.filter(ProgramExecutionLog.decision_action == action)
     if exchange:
         if exchange == "hyperliquid":
             # Include hyperliquid or NULL (legacy data)

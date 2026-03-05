@@ -139,6 +139,41 @@ export default function AlphaArenaFeed({
   // Exchange filter state
   const [selectedExchange, setSelectedExchange] = useState<'all' | 'hyperliquid' | 'binance'>('all')
 
+  // Feed-level filter states (shared by ModelChat and Program tabs)
+  const [feedTimeRange, setFeedTimeRange] = useState<'all' | '3d' | '7d' | 'custom'>('all')
+  const [feedAction, setFeedAction] = useState<string>('') // '' = all, 'buy'/'sell'/'hold'/'close'
+  const [feedCustomFrom, setFeedCustomFrom] = useState<string>('') // local datetime string
+  const [feedCustomTo, setFeedCustomTo] = useState<string>('') // local datetime string
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false)
+
+  // Derived: whether any feed filter is active (used to pause auto-refresh)
+  const isFeedFiltered = feedTimeRange !== 'all' || feedAction !== ''
+
+  // Compute UTC ISO strings from feed filter for API calls
+  const feedAfterTimeUTC = useMemo(() => {
+    if (feedTimeRange === '3d') {
+      const d = new Date()
+      d.setDate(d.getDate() - 3)
+      return d.toISOString()
+    }
+    if (feedTimeRange === '7d') {
+      const d = new Date()
+      d.setDate(d.getDate() - 7)
+      return d.toISOString()
+    }
+    if (feedTimeRange === 'custom' && feedCustomFrom) {
+      return new Date(feedCustomFrom).toISOString()
+    }
+    return undefined
+  }, [feedTimeRange, feedCustomFrom])
+
+  const feedBeforeTimeUTC = useMemo(() => {
+    if (feedTimeRange === 'custom' && feedCustomTo) {
+      return new Date(feedCustomTo).toISOString()
+    }
+    return undefined
+  }, [feedTimeRange, feedCustomTo])
+
   // Dashboard visibility config dialog
   const [showVisibilityConfig, setShowVisibilityConfig] = useState(false)
   const [visibilityAccounts, setVisibilityAccounts] = useState<TradingAccount[]>([])
@@ -286,6 +321,9 @@ export default function AlphaArenaFeed({
         }
 
         if (msg.type === 'model_chat_update' && msg.decision) {
+          // Skip WebSocket updates when feed filter is active to prevent overwriting filtered results
+          if (isFeedFiltered) return
+
           // Prepend new AI decision to the list
           setModelChat((prev) => {
             // Check if decision already exists to prevent duplicates
@@ -306,7 +344,7 @@ export default function AlphaArenaFeed({
     return () => {
       wsRef.current?.removeEventListener('message', handleMessage)
     }
-  }, [wsRef, activeAccount, cacheKey, walletAddress, writeCache])
+  }, [wsRef, activeAccount, cacheKey, walletAddress, writeCache, isFeedFiltered])
 
   // Load accounts for dropdown - use dedicated API instead of positions data
   const loadAccounts = useCallback(async () => {
@@ -408,6 +446,9 @@ export default function AlphaArenaFeed({
   }, [])
 
   const loadModelChatData = useCallback(async (isBackgroundRefresh: boolean = false) => {
+    // Skip background refresh when feed filter is active
+    if (isBackgroundRefresh && isFeedFiltered) return null
+
     try {
       setLoadingModelChat(true)
       const accountId = activeAccount === 'all' ? undefined : activeAccount
@@ -420,6 +461,9 @@ export default function AlphaArenaFeed({
         wallet_address: walletAddress,
         symbol: symbol,
         exchange: exchange,
+        after_time: feedAfterTimeUTC,
+        before_time: feedBeforeTimeUTC,
+        operation: feedAction || undefined,
       })
       const newModelChat = chatRes.entries || []
 
@@ -460,7 +504,7 @@ export default function AlphaArenaFeed({
       return null
     }
 
-  }, [activeAccount, cacheKey, updateData, tradingMode, walletAddress, modelChat, mergeModelChatData, selectedSymbol, selectedExchange])
+  }, [activeAccount, cacheKey, updateData, tradingMode, walletAddress, modelChat, mergeModelChatData, selectedSymbol, selectedExchange, isFeedFiltered, feedAfterTimeUTC, feedBeforeTimeUTC, feedAction])
 
   // Load more model chat entries (lazy loading)
   const loadMoreModelChat = useCallback(async () => {
@@ -488,6 +532,8 @@ export default function AlphaArenaFeed({
         wallet_address: walletAddress,
         before_time: beforeTime,
         exchange: exchange,
+        after_time: feedAfterTimeUTC,
+        operation: feedAction || undefined,
       })
 
       const newEntries = chatRes.entries || []
@@ -505,7 +551,7 @@ export default function AlphaArenaFeed({
       console.error('[AlphaArenaFeed] Failed to load more model chat:', err)
       setIsLoadingMoreModelChat(false)
     }
-  }, [activeAccount, cacheKey, updateData, tradingMode, walletAddress, modelChat, hasMoreModelChat, isLoadingMoreModelChat, mergeModelChatData, selectedSymbol, selectedExchange])
+  }, [activeAccount, cacheKey, updateData, tradingMode, walletAddress, modelChat, hasMoreModelChat, isLoadingMoreModelChat, mergeModelChatData, selectedSymbol, selectedExchange, feedAfterTimeUTC, feedAction])
 
   const loadPositionsData = useCallback(async () => {
     try {
@@ -542,12 +588,23 @@ export default function AlphaArenaFeed({
 
   // Load program execution logs
   const loadProgramData = useCallback(async (backgroundRefresh = false) => {
+    // Skip background refresh when feed filter is active
+    if (backgroundRefresh && isFeedFiltered) return null
+
     try {
       if (!backgroundRefresh) setLoadingProgram(true)
       const accountId = activeAccount === 'all' ? undefined : activeAccount
       const env = tradingMode === 'testnet' || tradingMode === 'mainnet' ? tradingMode : undefined
       const exchange = selectedExchange === 'all' ? undefined : selectedExchange
-      const logs = await getProgramExecutions({ account_id: accountId, environment: env, limit: PROGRAM_LOG_LIMIT, exchange: exchange })
+      const logs = await getProgramExecutions({
+        account_id: accountId,
+        environment: env,
+        limit: PROGRAM_LOG_LIMIT,
+        exchange: exchange,
+        before: feedBeforeTimeUTC,
+        after: feedAfterTimeUTC,
+        action: feedAction || undefined,
+      })
 
       // If background refresh and user has loaded more history, merge instead of replace
       if (backgroundRefresh && programLogs.length > PROGRAM_LOG_LIMIT) {
@@ -566,7 +623,7 @@ export default function AlphaArenaFeed({
       if (!backgroundRefresh) setLoadingProgram(false)
       return null
     }
-  }, [activeAccount, tradingMode, selectedExchange, programLogs, mergeProgramData])
+  }, [activeAccount, tradingMode, selectedExchange, programLogs, mergeProgramData, isFeedFiltered, feedAfterTimeUTC, feedBeforeTimeUTC, feedAction])
 
   // Load more program logs (lazy loading)
   const loadMoreProgramData = useCallback(async () => {
@@ -584,6 +641,8 @@ export default function AlphaArenaFeed({
         limit: PROGRAM_LOG_LIMIT,
         before: oldestLog.created_at,
         exchange: exchange,
+        after: feedAfterTimeUTC,
+        action: feedAction || undefined,
       })
 
       if (moreLogs.length === 0) {
@@ -597,7 +656,7 @@ export default function AlphaArenaFeed({
     } finally {
       setIsLoadingMoreProgram(false)
     }
-  }, [activeAccount, tradingMode, programLogs, hasMoreProgram, isLoadingMoreProgram, selectedExchange])
+  }, [activeAccount, tradingMode, programLogs, hasMoreProgram, isLoadingMoreProgram, selectedExchange, feedAfterTimeUTC, feedAction])
 
   // Copy program log content (decision or error based on success status)
   const handleCopyProgramLog = async (log: ProgramExecutionLog) => {
@@ -655,6 +714,17 @@ export default function AlphaArenaFeed({
       loadProgramData()
     }
   }, [activeTab, cacheKey])
+
+  // Re-fetch ModelChat and Program data when feed filter changes
+  useEffect(() => {
+    if (activeTab === 'model-chat' || activeTab === 'program') {
+      // Reset lazy loading states
+      setHasMoreModelChat(true)
+      setHasMoreProgram(true)
+      loadModelChatData(false)
+      loadProgramData(false)
+    }
+  }, [feedTimeRange, feedAction, feedCustomFrom, feedCustomTo])
 
   // Background polling - refresh all data regardless of active tab
   useEffect(() => {
@@ -949,6 +1019,105 @@ export default function AlphaArenaFeed({
       decision_snapshot: cached?.decision_snapshot ?? entry.decision_snapshot,
     }
   }, [])
+
+  // Clear all feed filters
+  const clearFeedFilters = useCallback(() => {
+    setFeedTimeRange('all')
+    setFeedAction('')
+    setFeedCustomFrom('')
+    setFeedCustomTo('')
+    setShowCustomDatePicker(false)
+  }, [])
+
+  // Handle time range quick select
+  const handleTimeRangeChange = useCallback((range: 'all' | '3d' | '7d' | 'custom') => {
+    if (range === 'custom') {
+      setShowCustomDatePicker(true)
+      setFeedTimeRange('custom')
+    } else {
+      setShowCustomDatePicker(false)
+      setFeedCustomFrom('')
+      setFeedCustomTo('')
+      setFeedTimeRange(range)
+    }
+  }, [])
+
+  // Render feed filter bar (shared between ModelChat and Program tabs)
+  const renderFeedFilterBar = () => (
+    <div className="flex flex-col gap-2 pb-2 mb-2 border-b border-border">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Time range buttons */}
+        {(['3d', '7d', 'custom'] as const).map(range => (
+          <button
+            key={range}
+            onClick={() => handleTimeRangeChange(range)}
+            className={`h-6 px-2 text-[10px] font-medium rounded border transition-colors ${
+              feedTimeRange === range
+                ? 'bg-foreground text-background border-foreground'
+                : 'bg-background border-border text-muted-foreground hover:text-foreground hover:border-foreground/50'
+            }`}
+          >
+            {range === '3d' ? t('feed.filterDays3', '3D') :
+             range === '7d' ? t('feed.filterDays7', '7D') :
+             t('feed.filterCustom', 'Custom')}
+          </button>
+        ))}
+
+        {/* Separator */}
+        <div className="w-px h-4 bg-border mx-0.5" />
+
+        {/* Action filter */}
+        <select
+          value={feedAction}
+          onChange={e => setFeedAction(e.target.value)}
+          className="h-6 rounded border border-border bg-background px-1.5 text-[10px] font-medium text-foreground uppercase"
+        >
+          <option value="">{t('feed.filterAllActions', 'All Actions')}</option>
+          <option value="buy">BUY</option>
+          <option value="sell">SELL</option>
+          <option value="hold">HOLD</option>
+          <option value="close">CLOSE</option>
+        </select>
+
+        {/* Clear button */}
+        {isFeedFiltered && (
+          <button
+            onClick={clearFeedFilters}
+            className="h-6 px-2 text-[10px] font-medium rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/50 transition-colors"
+          >
+            {t('feed.filterClearAll', 'Clear')}
+          </button>
+        )}
+      </div>
+
+      {/* Custom date picker row */}
+      {showCustomDatePicker && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] text-muted-foreground">{t('feed.filterFrom', 'From')}</span>
+          <input
+            type="datetime-local"
+            value={feedCustomFrom}
+            onChange={e => setFeedCustomFrom(e.target.value)}
+            className="h-6 rounded border border-border bg-background px-1.5 text-[10px] text-foreground"
+          />
+          <span className="text-[10px] text-muted-foreground">{t('feed.filterTo', 'To')}</span>
+          <input
+            type="datetime-local"
+            value={feedCustomTo}
+            onChange={e => setFeedCustomTo(e.target.value)}
+            className="h-6 rounded border border-border bg-background px-1.5 text-[10px] text-foreground"
+          />
+        </div>
+      )}
+
+      {/* Auto-refresh paused notice */}
+      {isFeedFiltered && (
+        <div className="text-[9px] text-amber-500/80">
+          {t('feed.filterAutoRefreshPaused', 'Auto-refresh paused while filter is active')}
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -1285,6 +1454,7 @@ export default function AlphaArenaFeed({
               </TabsContent>
 
               <TabsContent value="model-chat" className="flex-1 h-0 overflow-y-auto mt-0 p-4 space-y-3">
+                {renderFeedFilterBar()}
                 {loadingModelChat && filteredModelChat.length === 0 ? (
                   <div className="text-xs text-muted-foreground">{t('feed.loadingModelChat', 'Loading model chat...')}</div>
                 ) : filteredModelChat.length === 0 ? (
@@ -1689,6 +1859,7 @@ export default function AlphaArenaFeed({
               </TabsContent>
 
               <TabsContent value="program" className="flex-1 h-0 overflow-y-auto mt-0 p-4 space-y-3">
+                {renderFeedFilterBar()}
                 {loadingProgram && filteredProgramLogs.length === 0 ? (
                   <div className="text-xs text-muted-foreground">{t('feed.loadingProgram', 'Loading program executions...')}</div>
                 ) : filteredProgramLogs.length === 0 ? (
