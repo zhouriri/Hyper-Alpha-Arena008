@@ -942,7 +942,7 @@ export default function ProgramTrader() {
 
           {/* Binding Form */}
           {(isAddingBinding || selectedBinding) && (
-            <div className="border-t pt-4 space-y-3 flex-shrink-0">
+            <div className="border-t pt-4 space-y-3 overflow-auto min-h-0">
               {/* Program Selection (only for new bindings) */}
               <div>
                 <label className="text-xs uppercase text-muted-foreground">Program</label>
