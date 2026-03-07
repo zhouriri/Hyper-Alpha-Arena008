@@ -916,6 +916,19 @@ class ProgramExecutionService:
                 logger.error(f"[ProgramExecution] No price available for {decision.symbol}")
                 return False
 
+            # Validate TP/SL prices against market price (approximate entry)
+            if op in ("buy", "sell"):
+                from program_trader.executor import validate_tp_sl_prices
+                tp_valid, tp_errors = validate_tp_sl_prices(
+                    operation=op,
+                    entry_price=market_price,
+                    take_profit_price=getattr(decision, 'take_profit_price', None),
+                    stop_loss_price=getattr(decision, 'stop_loss_price', None),
+                )
+                if not tp_valid:
+                    logger.error(f"[ProgramExecution] Invalid TP/SL: {tp_errors}")
+                    return False
+
             # Execute based on operation type
             order_result = None
             if op == "buy":

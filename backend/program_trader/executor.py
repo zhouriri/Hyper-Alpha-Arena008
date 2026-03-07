@@ -280,6 +280,84 @@ def validate_decision(decision: Decision, positions: Dict[str, Any] = None) -> t
     return len(errors) == 0, errors
 
 
+def validate_tp_sl_prices(
+    operation: str,
+    entry_price: float,
+    take_profit_price: float = None,
+    stop_loss_price: float = None,
+) -> tuple:
+    """
+    Validate TP/SL prices against entry price and trade direction.
+    Shared by both live trading and backtesting.
+
+    Rules enforced (same as exchange-level rejection):
+    - TP/SL must be positive
+    - BUY (long): TP > entry, SL < entry
+    - SELL (short): TP < entry, SL > entry
+    - TP != SL when both are set
+    - TP/SL != entry price
+
+    Returns:
+        (is_valid: bool, errors: list[str])
+    """
+    errors = []
+    op = operation.lower()
+
+    if op not in ("buy", "sell"):
+        return True, []
+
+    if take_profit_price is not None:
+        if take_profit_price <= 0:
+            errors.append(
+                f"take_profit_price must be positive, got {take_profit_price}"
+            )
+        elif take_profit_price == entry_price:
+            errors.append(
+                f"take_profit_price ({take_profit_price}) cannot equal "
+                f"entry price ({entry_price})"
+            )
+        elif op == "buy" and take_profit_price <= entry_price:
+            errors.append(
+                f"BUY/LONG: take_profit_price ({take_profit_price}) must be "
+                f"above entry price ({entry_price})"
+            )
+        elif op == "sell" and take_profit_price >= entry_price:
+            errors.append(
+                f"SELL/SHORT: take_profit_price ({take_profit_price}) must be "
+                f"below entry price ({entry_price})"
+            )
+
+    if stop_loss_price is not None:
+        if stop_loss_price <= 0:
+            errors.append(
+                f"stop_loss_price must be positive, got {stop_loss_price}"
+            )
+        elif stop_loss_price == entry_price:
+            errors.append(
+                f"stop_loss_price ({stop_loss_price}) cannot equal "
+                f"entry price ({entry_price})"
+            )
+        elif op == "buy" and stop_loss_price >= entry_price:
+            errors.append(
+                f"BUY/LONG: stop_loss_price ({stop_loss_price}) must be "
+                f"below entry price ({entry_price})"
+            )
+        elif op == "sell" and stop_loss_price <= entry_price:
+            errors.append(
+                f"SELL/SHORT: stop_loss_price ({stop_loss_price}) must be "
+                f"above entry price ({entry_price})"
+            )
+
+    if (take_profit_price is not None and stop_loss_price is not None
+            and take_profit_price == stop_loss_price):
+        errors.append(
+            f"take_profit_price and stop_loss_price cannot be equal "
+            f"({take_profit_price})"
+        )
+
+    return len(errors) == 0, errors
+
+
 def execute_strategy(
     code: str,
     market_data: MarketData,

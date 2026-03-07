@@ -443,6 +443,21 @@ class ExecutionSimulator:
         tp_price = getattr(decision, 'take_profit_price', None)
         sl_price = getattr(decision, 'stop_loss_price', None)
 
+        # Validate TP/SL prices - abort entire backtest if invalid
+        if tp_price is not None or sl_price is not None:
+            from program_trader.executor import validate_tp_sl_prices
+            is_valid, errors = validate_tp_sl_prices(
+                operation=operation,
+                entry_price=exec_price,
+                take_profit_price=tp_price,
+                stop_loss_price=sl_price,
+            )
+            if not is_valid:
+                raise ValueError(
+                    f"Invalid TP/SL in strategy: {'; '.join(errors)}. "
+                    f"Please fix your strategy code."
+                )
+
         # Get position info before adding
         pos = account.get_position(symbol)
         old_size = pos.size
@@ -531,6 +546,21 @@ class ExecutionSimulator:
         # Get TP/SL prices
         tp_price = getattr(decision, 'take_profit_price', None)
         sl_price = getattr(decision, 'stop_loss_price', None)
+
+        # Validate TP/SL prices - abort entire backtest if invalid
+        if tp_price is not None or sl_price is not None:
+            from program_trader.executor import validate_tp_sl_prices
+            is_valid, errors = validate_tp_sl_prices(
+                operation=operation,
+                entry_price=exec_price,
+                take_profit_price=tp_price,
+                stop_loss_price=sl_price,
+            )
+            if not is_valid:
+                raise ValueError(
+                    f"Invalid TP/SL in strategy: {'; '.join(errors)}. "
+                    f"Please fix your strategy code."
+                )
 
         # Open position (no longer pass TP/SL to position itself)
         account.open_position(
