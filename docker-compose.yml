@@ -50,7 +50,7 @@ services:
       NO_PROXY: ""
       no_proxy: ""
     ports:
-      - "127.0.0.1:8802:8802"
+      - "8802:8802"
     depends_on:
       postgres:
         condition: service_healthy
