@@ -352,6 +352,24 @@ class BinanceTradingClient:
         position_risk = self._request("GET", "/fapi/v3/positionRisk", signed=True)
         positions = []
 
+        # Build max leverage map from leverageBracket API (one call for all symbols)
+        max_leverage_map = {}
+        open_positions = [p for p in position_risk if float(p.get("positionAmt", 0)) != 0]
+        if open_positions:
+            try:
+                brackets = self._request("GET", "/fapi/v1/leverageBracket", signed=True)
+                for item in brackets:
+                    symbol = item.get("symbol", "")
+                    bracket_list = item.get("brackets", [])
+                    if bracket_list:
+                        # First bracket has the highest allowed leverage
+                        max_lev = bracket_list[0].get("initialLeverage", 0)
+                        # Store with USDT suffix removed
+                        clean_symbol = symbol[:-4] if symbol.endswith("USDT") else symbol
+                        max_leverage_map[clean_symbol] = max_lev
+            except Exception as e:
+                logger.warning(f"[BINANCE] Failed to fetch leverage brackets: {e}")
+
         for pos in position_risk:
             position_amt = float(pos.get("positionAmt", 0))
             if position_amt == 0:
@@ -395,6 +413,7 @@ class BinanceTradingClient:
                 "mark_price": float(pos.get("markPrice", 0)),
                 "maint_margin": float(pos.get("maintMargin", 0)),
                 "position_side": pos.get("positionSide", "BOTH"),
+                "max_leverage": max_leverage_map.get(symbol, 0),
             })
 
         return positions
