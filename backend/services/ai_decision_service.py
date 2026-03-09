@@ -859,28 +859,14 @@ def _build_prompt_context(
                     else:
                         recent_trades_summary = "Binance wallet not configured"
                 else:
-                    # Get Hyperliquid trading client
-                    from services.hyperliquid_trading_client import get_cached_trading_client
-                    from database.models import HyperliquidWallet
+                    # Get Hyperliquid trading client (uses get_hyperliquid_client to support API Wallet)
+                    from services.hyperliquid_environment import get_hyperliquid_client
 
-                    wallet = db_session.query(HyperliquidWallet).filter(
-                        HyperliquidWallet.account_id == account.id,
-                        HyperliquidWallet.environment == environment,
-                        HyperliquidWallet.is_active == "true"
-                    ).first()
-
-                    if wallet:
-                        from utils.encryption import decrypt_private_key
-                        private_key = decrypt_private_key(wallet.private_key_encrypted)
-                        client = get_cached_trading_client(
-                            account_id=account.id,
-                            private_key=private_key,
-                            environment=environment,
-                            wallet_address=wallet.wallet_address
-                        )
+                    try:
+                        client = get_hyperliquid_client(db_session, account.id, override_environment=environment)
                         recent_trades = client.get_recent_closed_trades(db_session, limit=5)
                         open_orders = client.get_open_orders(db_session)
-                    else:
+                    except ValueError:
                         recent_trades_summary = "Wallet not configured for this environment"
 
                 # Build recent trades section (common format for both exchanges)

@@ -1378,16 +1378,19 @@ async def check_mainnet_accounts(
         for wallet, account in mainnet_wallets:
             checked_account_ids.add(account.id)
             try:
-                decrypted_key = decrypt_private_key(wallet.private_key_encrypted)
-                if not decrypted_key:
-                    logger.warning(f"Failed to decrypt mainnet key for account {account.id} from wallets table")
-                    continue
-
-                if not decrypted_key.startswith('0x'):
-                    decrypted_key = '0x' + decrypted_key
-
-                eth_account = EthAccount.from_key(decrypted_key)
-                wallet_address = eth_account.address.lower()
+                # For agent_key wallets, check builder fee against master wallet address
+                # (builder fee authorization is tied to the master wallet, not the agent)
+                if wallet.key_type == "agent_key" and wallet.master_wallet_address:
+                    wallet_address = wallet.master_wallet_address.lower()
+                else:
+                    decrypted_key = decrypt_private_key(wallet.private_key_encrypted)
+                    if not decrypted_key:
+                        logger.warning(f"Failed to decrypt mainnet key for account {account.id} from wallets table")
+                        continue
+                    if not decrypted_key.startswith('0x'):
+                        decrypted_key = '0x' + decrypted_key
+                    eth_account = EthAccount.from_key(decrypted_key)
+                    wallet_address = eth_account.address.lower()
 
                 response = requests.post(
                     "https://api.hyperliquid.xyz/info",

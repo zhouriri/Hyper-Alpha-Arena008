@@ -127,12 +127,9 @@ def _get_hyperliquid_positions(db: Session, account_id: Optional[int], environme
             needs_wallet = wallet_address is None
 
             if needs_state or needs_positions or needs_wallet:
-                # Decrypt private key and fetch live data as needed (use cached client for performance)
-                private_key = decrypt_private_key(encrypted_key)
-                client = get_cached_trading_client(
-                    account_id=account.id,
-                    private_key=private_key,
-                    environment=environment
+                # Use get_hyperliquid_client to support API Wallet mode
+                client = get_hyperliquid_client(
+                    db, account.id, override_environment=environment
                 )
 
                 if needs_state:

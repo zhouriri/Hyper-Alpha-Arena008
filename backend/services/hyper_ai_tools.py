@@ -748,7 +748,7 @@ def execute_get_system_overview(db: Session) -> str:
 def execute_get_wallet_status(db: Session, exchange: str = "all", environment: str = "all") -> str:
     """Get wallet balance and position summary using real-time API (same as frontend)."""
     from database.models import HyperliquidWallet, BinanceWallet, Account
-    from services.hyperliquid_trading_client import get_cached_trading_client
+    from services.hyperliquid_environment import get_hyperliquid_client
     from services.binance_trading_client import BinanceTradingClient
     from utils.encryption import decrypt_private_key
 
@@ -766,14 +766,8 @@ def execute_get_wallet_status(db: Session, exchange: str = "all", environment: s
 
             for wallet, account in hl_query.all():
                 try:
-                    # Decrypt private key and use cached client
-                    private_key = decrypt_private_key(wallet.private_key_encrypted)
-                    client = get_cached_trading_client(
-                        account_id=account.id,
-                        private_key=private_key,
-                        environment=wallet.environment,
-                        wallet_address=wallet.wallet_address
-                    )
+                    # Use get_hyperliquid_client to support API Wallet mode
+                    client = get_hyperliquid_client(db, account.id, override_environment=wallet.environment)
                     account_state = client.get_account_state(db)
 
                     wallet_info = {

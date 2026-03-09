@@ -1581,6 +1581,27 @@ async def configure_agent_wallet(
         # Clear trading client cache
         clear_trading_client_cache(account_id=account_id, environment=request.environment)
 
+        # Check builder fee authorization for mainnet (using master wallet address)
+        builder_fee_authorized = True
+        if request.environment == 'mainnet':
+            try:
+                from config.settings import HYPERLIQUID_BUILDER_CONFIG
+                import requests as http_requests
+                resp = http_requests.post(
+                    "https://api.hyperliquid.xyz/info",
+                    json={
+                        "type": "maxBuilderFee",
+                        "user": master_address,
+                        "builder": HYPERLIQUID_BUILDER_CONFIG.builder_address
+                    },
+                    timeout=10
+                )
+                max_fee = resp.json()
+                builder_fee_authorized = max_fee >= HYPERLIQUID_BUILDER_CONFIG.builder_fee
+                print(f"[BUILDER_AUTH] Agent wallet bind: master={master_address[:12]}... maxBuilderFee={max_fee}, authorized={builder_fee_authorized}")
+            except Exception as e:
+                print(f"[BUILDER_AUTH] Failed to check builder fee for agent wallet: {e}")
+
         return {
             "success": True,
             "walletId": wallet_id,
@@ -1588,6 +1609,7 @@ async def configure_agent_wallet(
             "masterWalletAddress": master_address,
             "validUntil": valid_until.isoformat() if valid_until else None,
             "message": f"Agent wallet configured for {request.environment}",
+            "builderFeeAuthorized": builder_fee_authorized,
         }
 
     except HTTPException:
