@@ -7,6 +7,25 @@
 
 import { ethers } from 'ethers'
 
+// Error codes for i18n translation in UI components
+export const WALLET_ERROR = {
+  NO_WALLET: 'NO_BROWSER_WALLET',
+  NO_ACCOUNT: 'NO_ACCOUNT_SELECTED',
+  NOT_DEPOSITED: 'NOT_DEPOSITED',
+  USER_REJECTED: 'USER_REJECTED',
+  SETUP_FAILED: 'SETUP_FAILED',
+} as const
+
+class WalletSetupError extends Error {
+  errorCode: string
+  env?: string
+  constructor(code: string, message: string, env?: string) {
+    super(message)
+    this.errorCode = code
+    this.env = env
+  }
+}
+
 // Hyperliquid EIP-712 domain (same for all user-signed actions)
 const EIP712_DOMAIN = {
   name: 'HyperliquidSignTransaction',
@@ -48,66 +67,53 @@ function getChainName(env: 'testnet' | 'mainnet') {
 export async function connectBrowserWallet(): Promise<string> {
   const ethereum = (window as any).ethereum
   if (!ethereum) {
-    throw new Error('No browser wallet detected. Please install MetaMask, Rabby, or another EIP-1193 compatible wallet.')
+    throw new WalletSetupError(WALLET_ERROR.NO_WALLET, 'No browser wallet detected')
   }
   const accounts: string[] = await ethereum.request({ method: 'eth_requestAccounts' })
   if (!accounts || accounts.length === 0) {
-    throw new Error('No account selected in wallet')
+    throw new WalletSetupError(WALLET_ERROR.NO_ACCOUNT, 'No account selected in wallet')
   }
   return accounts[0]
 }
 
 /**
- * Switch wallet to the required signing chain (0x66eee / Arbitrum Sepolia).
- * Some wallets enforce that EIP-712 domain chainId matches the active network.
- * Returns the previous chainId so caller can switch back after signing.
+ * Check if an error is a chainId mismatch from the wallet.
+ * Different wallets use different error messages/codes for this.
  */
-async function ensureSigningChain(): Promise<string | null> {
+function isChainIdMismatchError(err: any): boolean {
+  const msg = (err?.message || '').toLowerCase()
+  return msg.includes('chainid') && (msg.includes('mismatch') || msg.includes('must match') || msg.includes('should be same') || msg.includes('same as current'))
+}
+
+/**
+ * Switch wallet to signing chain (0x66eee / Arbitrum Sepolia).
+ * Tries switch first, then add+switch if chain unknown.
+ */
+async function switchToSigningChain(): Promise<void> {
   const ethereum = (window as any).ethereum
-  const currentChainId: string = await ethereum.request({ method: 'eth_chainId' })
-
-  if (currentChainId.toLowerCase() === SIGNING_CHAIN_ID) {
-    return null
-  }
-
-  // Best-effort chain switch: MetaMask requires it, Rabby/OKX don't need it.
-  // If switching fails (except user rejection), silently skip — the wallet
-  // may sign EIP-712 typed data regardless of active chain.
   try {
     await ethereum.request({
       method: 'wallet_switchEthereumChain',
       params: [{ chainId: SIGNING_CHAIN_ID }],
     })
-    return currentChainId
-  } catch (switchErr: any) {
-    // User explicitly rejected — abort
-    if (switchErr?.code === 4001) {
-      throw switchErr
+  } catch (err: any) {
+    if (err?.code === 4001) throw err
+    // Chain unknown — try adding it, then switch
+    try {
+      await ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: SIGNING_CHAIN_ID,
+          chainName: 'Arbitrum Sepolia',
+          rpcUrls: ['https://sepolia-rollup.arbitrum.io/rpc'],
+          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+          blockExplorerUrls: ['https://sepolia.arbiscan.io'],
+        }],
+      })
+    } catch (addErr: any) {
+      if (addErr?.code === 4001) throw addErr
+      throw new Error('Failed to add signing chain to wallet')
     }
-    // Chain not added — try adding it
-    if (switchErr?.code === 4902) {
-      try {
-        await ethereum.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: SIGNING_CHAIN_ID,
-            chainName: 'Arbitrum Sepolia',
-            rpcUrls: ['https://sepolia-rollup.arbitrum.io/rpc'],
-            nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-            blockExplorerUrls: ['https://sepolia.arbiscan.io'],
-          }],
-        })
-        return currentChainId
-      } catch (addErr: any) {
-        if (addErr?.code === 4001) throw addErr
-        // Adding chain also failed — skip silently
-        console.warn('[WalletSetup] Chain add failed, proceeding without chain switch:', addErr?.message)
-        return null
-      }
-    }
-    // Any other error (Rabby "Unrecognized chain ID", etc.) — skip silently
-    console.warn('[WalletSetup] Chain switch failed, proceeding without chain switch:', switchErr?.message)
-    return null
   }
 }
 
@@ -128,6 +134,42 @@ async function restoreChain(previousChainId: string | null): Promise<void> {
 }
 
 /**
+ * Sign EIP-712 typed data with automatic chainId mismatch fallback.
+ *
+ * Strategy (per best practices):
+ * 1. Try signing directly — works for Rabby, OKX, and wallets that don't enforce chainId
+ * 2. If chainId mismatch error (MetaMask, etc.) — switch chain, then retry
+ * 3. User rejection (4001) always aborts immediately
+ */
+async function signTypedData(address: string, typedData: any): Promise<string> {
+  const ethereum = (window as any).ethereum
+  const payload = JSON.stringify(typedData)
+
+  try {
+    // Attempt 1: sign directly (Rabby/OKX will succeed here)
+    return await ethereum.request({
+      method: 'eth_signTypedData_v4',
+      params: [address, payload],
+    })
+  } catch (err: any) {
+    if (err?.code === 4001) throw err
+
+    if (isChainIdMismatchError(err)) {
+      // MetaMask-style wallet: needs chain switch first
+      console.warn('[WalletSetup] chainId mismatch, switching chain and retrying...')
+      await switchToSigningChain()
+      // Attempt 2: sign after chain switch
+      return await ethereum.request({
+        method: 'eth_signTypedData_v4',
+        params: [address, payload],
+      })
+    }
+
+    throw err
+  }
+}
+
+/**
  * Parse EIP-712 signature hex into {r, s, v} format for Hyperliquid API
  */
 function parseSignature(sigHex: string): { r: string; s: string; v: number } {
@@ -138,14 +180,11 @@ function parseSignature(sigHex: string): { r: string; s: string; v: number } {
 /**
  * Convert Hyperliquid API errors to user-friendly messages
  */
-function friendlyError(response: string, env: 'testnet' | 'mainnet'): string {
+function throwFriendlyError(response: string, env: 'testnet' | 'mainnet'): never {
   if (response?.includes('Must deposit before performing actions')) {
-    const url = env === 'testnet'
-      ? 'https://app.hyperliquid-testnet.xyz'
-      : 'https://app.hyperliquid.xyz'
-    return `This wallet has not deposited on Hyperliquid ${env}. Please visit ${url} and deposit USDC first.`
+    throw new WalletSetupError(WALLET_ERROR.NOT_DEPOSITED, response, env)
   }
-  return response || 'Unknown error'
+  throw new WalletSetupError(WALLET_ERROR.SETUP_FAILED, response || 'Unknown error', env)
 }
 
 /**
@@ -239,7 +278,6 @@ async function approveBuilderFee(
   masterAddress: string,
   env: 'testnet' | 'mainnet'
 ): Promise<void> {
-  const ethereum = (window as any).ethereum
   const nonce = Date.now()
 
   const messageValues = {
@@ -255,11 +293,7 @@ async function approveBuilderFee(
     messageValues,
   )
 
-  const sigHex: string = await ethereum.request({
-    method: 'eth_signTypedData_v4',
-    params: [masterAddress, JSON.stringify(typedData)],
-  })
-
+  const sigHex = await signTypedData(masterAddress, typedData)
   const signature = parseSignature(sigHex)
 
   const action = {
@@ -279,7 +313,7 @@ async function approveBuilderFee(
 
   const result = await parseJsonResponse(resp, 'ApproveBuilderFee')
   if (result.status === 'err') {
-    throw new Error(friendlyError(result.response, env))
+    throwFriendlyError(result.response, env)
   }
 }
 
@@ -297,8 +331,6 @@ async function createAgentWallet(
   env: 'testnet' | 'mainnet',
   agentName: string = ''
 ): Promise<AgentSetupResult> {
-  const ethereum = (window as any).ethereum
-
   const agentWallet = ethers.Wallet.createRandom()
   const agentPrivateKey = agentWallet.privateKey
   const agentAddress = agentWallet.address
@@ -318,11 +350,7 @@ async function createAgentWallet(
     messageValues,
   )
 
-  const sigHex: string = await ethereum.request({
-    method: 'eth_signTypedData_v4',
-    params: [masterAddress, JSON.stringify(typedData)],
-  })
-
+  const sigHex = await signTypedData(masterAddress, typedData)
   const signature = parseSignature(sigHex)
 
   // Action sent to API includes signatureChainId/hyperliquidChain (SDK convention)
@@ -346,7 +374,7 @@ async function createAgentWallet(
 
   const result = await parseJsonResponse(resp, 'ApproveAgent')
   if (result.status === 'err') {
-    throw new Error(friendlyError(result.response, env))
+    throwFriendlyError(result.response, env)
   }
 
   return { agentPrivateKey, agentAddress, masterAddress }
@@ -362,10 +390,13 @@ export interface SetupProgress {
 
 /**
  * Full one-click wallet setup flow:
- * 1. Connect browser wallet & switch to signing chain
+ * 1. Connect browser wallet
  * 2. (Mainnet only) Check & sign builder fee authorization
  * 3. Generate agent key & sign ApproveAgent
  * 4. Save to backend via configureAgentWallet API
+ *
+ * Signing strategy: try signing directly first (Rabby/OKX don't need chain switch).
+ * If wallet returns chainId mismatch (MetaMask), automatically switch chain and retry.
  */
 export async function oneClickWalletSetup(
   env: 'testnet' | 'mainnet',
@@ -373,17 +404,18 @@ export async function oneClickWalletSetup(
   saveToBackend: (agentKey: string, masterAddr: string) => Promise<void>,
   onProgress: (progress: SetupProgress) => void
 ): Promise<void> {
-  let previousChainId: string | null = null
+  // Track if we switched chains so we can restore later
+  const ethereum = (window as any).ethereum
+  let originalChainId: string | null = null
+
   try {
-    // Step 1: Connect wallet and switch to signing chain
+    // Step 1: Connect wallet
     onProgress({ step: 'connecting', message: 'Connecting browser wallet...' })
     await connectBrowserWallet()
 
-    // Switch chain before reading final address (chain switch can change active account)
-    previousChainId = await ensureSigningChain()
+    // Record current chain for potential restore later
+    originalChainId = await ethereum.request({ method: 'eth_chainId' })
 
-    // Re-fetch address after chain switch to get the actual signer
-    const ethereum = (window as any).ethereum
     const accounts: string[] = await ethereum.request({ method: 'eth_accounts' })
     const masterAddress = accounts[0]
 
@@ -402,8 +434,11 @@ export async function oneClickWalletSetup(
     onProgress({ step: 'signing_agent', message: 'Please approve API Wallet creation in your wallet...' })
     const result = await createAgentWallet(masterAddress, env, 'HyperArena')
 
-    // Restore wallet to original chain
-    await restoreChain(previousChainId)
+    // Restore wallet to original chain if it was changed
+    const currentChain = await ethereum.request({ method: 'eth_chainId' })
+    if (originalChainId && currentChain.toLowerCase() !== originalChainId.toLowerCase()) {
+      await restoreChain(originalChainId)
+    }
 
     // Step 4: Save to backend
     onProgress({ step: 'saving', message: 'Saving wallet configuration...' })
@@ -411,11 +446,18 @@ export async function oneClickWalletSetup(
 
     onProgress({ step: 'done', message: 'Wallet setup complete!' })
   } catch (err: any) {
-    await restoreChain(previousChainId)
-    const message = err?.code === 4001
-      ? 'User rejected the request'
-      : err?.message || 'Setup failed'
-    onProgress({ step: 'error', message, error: message })
+    // Restore chain on error
+    try {
+      const currentChain = await ethereum.request({ method: 'eth_chainId' })
+      if (originalChainId && currentChain.toLowerCase() !== originalChainId.toLowerCase()) {
+        await restoreChain(originalChainId)
+      }
+    } catch { /* best effort */ }
+
+    if (err?.code === 4001) {
+      err.errorCode = WALLET_ERROR.USER_REJECTED
+    }
+    onProgress({ step: 'error', message: err?.message || 'Setup failed', error: err?.errorCode || '' })
     throw err
   }
 }

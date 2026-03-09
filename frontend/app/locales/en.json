@@ -885,7 +885,7 @@
       "agentPrivateKey": "API Wallet Private Key",
       "masterWalletAddress": "Master Wallet Address",
       "bindAgent": "Bind API Wallet",
-      "configured": "API Wallet configured: {{addr}}",
+      "configured": "Wallet configured successfully!",
       "bothFieldsRequired": "Both API Wallet Private Key and Master Wallet Address are required",
       "invalidAgentKey": "Invalid API Wallet private key format",
       "invalidMasterAddress": "Invalid master wallet address format"
@@ -902,6 +902,23 @@
       "rejected": "Signing rejected by user",
       "mainnetHint": "Connects your browser wallet, authorizes Hyper Alpha Arena trading tools, and creates a secure API Wallet.",
       "testnetHint": "Connects your browser wallet and creates a secure API Wallet for testnet trading."
+    },
+    "error": {
+      "noWallet": "No browser wallet detected. Please install MetaMask, Rabby, or another wallet extension.",
+      "noAccount": "No account selected in wallet. Please unlock your wallet and try again.",
+      "notDepositedTestnet": "This wallet has not deposited on Hyperliquid Testnet. Please visit app.hyperliquid-testnet.xyz and deposit test USDC first.",
+      "notDepositedMainnet": "This wallet has not deposited on Hyperliquid. Please visit app.hyperliquid.xyz and deposit USDC first.",
+      "setupFailed": "Wallet setup failed. Please try again."
+    },
+    "test": {
+      "success": "Connection successful! Balance: ${{balance}}",
+      "failed": "Connection failed: {{error}}",
+      "error": "Connection test failed"
+    },
+    "delete": {
+      "confirm": "Delete {{env}} wallet?",
+      "success": "{{env}} wallet deleted",
+      "failed": "Failed to delete wallet"
     }
   },
   "strategy": {
@@ -1544,7 +1561,10 @@
     }
   },
   "bot": {
-    "telegram": "Telegram Bot",
+    "telegram": {
+      "howToChat": "Click below to start chatting with Hyper AI:",
+      "openChat": "Open Chat in Telegram"
+    },
     "telegramDesc": "Connect a Telegram bot to chat with Hyper AI from Telegram.",
     "status": "Status",
     "tokenLabel": "Bot Token",
@@ -1602,11 +1622,7 @@
       "dmStep3": "Right-click the bot → \"Message\" to start a DM"
     },
     "connectDiscord": "Connect Discord Bot",
-    "manageDiscord": "Manage Discord Bot",
-    "telegram": {
-      "howToChat": "Click below to start chatting with Hyper AI:",
-      "openChat": "Open Chat in Telegram"
-    }
+    "manageDiscord": "Manage Discord Bot"
   },
   "factors": {
     "overview": "Overview",

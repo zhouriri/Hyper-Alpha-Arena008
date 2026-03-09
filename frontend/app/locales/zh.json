@@ -905,7 +905,7 @@
       "agentPrivateKey": "API 钱包私钥",
       "masterWalletAddress": "主钱包地址",
       "bindAgent": "绑定 API 钱包",
-      "configured": "API 钱包已配置：{{addr}}",
+      "configured": "钱包配置成功！",
       "bothFieldsRequired": "API 钱包私钥和主钱包地址均为必填",
       "invalidAgentKey": "API 钱包私钥格式无效",
       "invalidMasterAddress": "主钱包地址格式无效"
@@ -922,6 +922,23 @@
       "rejected": "用户拒绝了签名请求",
       "mainnetHint": "连接浏览器钱包，授权 Hyper Alpha Arena 交易工具，并创建安全的 API 钱包。",
       "testnetHint": "连接浏览器钱包并创建安全的 API 钱包用于测试网交易。"
+    },
+    "error": {
+      "noWallet": "未检测到浏览器钱包，请安装 MetaMask、Rabby 等钱包扩展。",
+      "noAccount": "钱包中未选择账户，请先解锁钱包后重试。",
+      "notDepositedTestnet": "该钱包尚未在 Hyperliquid 测试网充值。请先访问 app.hyperliquid-testnet.xyz 充值测试 USDC。",
+      "notDepositedMainnet": "该钱包尚未在 Hyperliquid 充值。请先访问 app.hyperliquid.xyz 充值 USDC。",
+      "setupFailed": "钱包设置失败，请重试。"
+    },
+    "test": {
+      "success": "连接成功！余额：${{balance}}",
+      "failed": "连接失败：{{error}}",
+      "error": "连接测试失败"
+    },
+    "delete": {
+      "confirm": "确认删除 {{env}} 钱包？",
+      "success": "{{env}} 钱包已删除",
+      "failed": "删除钱包失败"
     }
   },
   "strategy": {
@@ -1564,7 +1581,10 @@
     }
   },
   "bot": {
-    "telegram": "Telegram 机器人",
+    "telegram": {
+      "howToChat": "点击下方开始与 Hyper AI 对话：",
+      "openChat": "在 Telegram 中打开对话"
+    },
     "telegramDesc": "连接 Telegram 机器人，在 Telegram 中与 Hyper AI 对话。",
     "status": "状态",
     "tokenLabel": "机器人 Token",
@@ -1622,11 +1642,7 @@
       "dmStep3": "右键点击机器人 → \"私信\" 开始对话"
     },
     "connectDiscord": "连接 Discord 机器人",
-    "manageDiscord": "管理 Discord 机器人",
-    "telegram": {
-      "howToChat": "点击下方开始与 Hyper AI 对话：",
-      "openChat": "在 Telegram 中打开对话"
-    }
+    "manageDiscord": "管理 Discord 机器人"
   },
   "factors": {
     "overview": "概览",

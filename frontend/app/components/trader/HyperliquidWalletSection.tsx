@@ -21,6 +21,7 @@ import {
 } from '@/lib/hyperliquidApi'
 import {
   oneClickWalletSetup,
+  WALLET_ERROR,
   type SetupProgress,
 } from '@/lib/hyperliquidWalletSetup'
 import { copyToClipboard } from '@/lib/utils'
@@ -136,11 +137,16 @@ export default function HyperliquidWalletSection({
       await loadWalletInfo()
       onWalletConfigured?.()
     } catch (err: any) {
-      if (err?.code !== 4001) {
-        toast.error(err?.message || 'Setup failed')
-      } else {
-        toast.error(t('wallet.setup.rejected', 'Signing rejected by user'))
+      const errorCode = err?.errorCode
+      const errorMap: Record<string, string> = {
+        [WALLET_ERROR.NO_WALLET]: t('wallet.error.noWallet', 'No browser wallet detected. Please install MetaMask, Rabby, or another wallet extension.'),
+        [WALLET_ERROR.NO_ACCOUNT]: t('wallet.error.noAccount', 'No account selected in wallet. Please unlock your wallet and try again.'),
+        [WALLET_ERROR.NOT_DEPOSITED]: err?.env === 'testnet'
+          ? t('wallet.error.notDepositedTestnet', 'This wallet has not deposited on Hyperliquid Testnet. Please visit app.hyperliquid-testnet.xyz and deposit test USDC first.')
+          : t('wallet.error.notDepositedMainnet', 'This wallet has not deposited on Hyperliquid. Please visit app.hyperliquid.xyz and deposit USDC first.'),
+        [WALLET_ERROR.USER_REJECTED]: t('wallet.setup.rejected', 'Signing rejected by user'),
       }
+      toast.error(errorMap[errorCode] || err?.message || t('wallet.error.setupFailed', 'Wallet setup failed. Please try again.'))
       // Keep error state visible briefly, then clear
       setTimeout(() => {
         setSetupProgress(prev => ({ ...prev, [environment]: null }))
@@ -154,29 +160,29 @@ export default function HyperliquidWalletSection({
       setTesting(true)
       const result = await testWalletConnection(accountId)
       if (result.success && result.connection === 'successful') {
-        toast.success(`Connection successful! Balance: $${result.accountState?.totalEquity.toFixed(2)}`)
+        toast.success(t('wallet.test.success', 'Connection successful! Balance: ${{balance}}', { balance: result.accountState?.totalEquity.toFixed(2) }))
       } else {
-        toast.error(`Connection failed: ${result.error || 'Unknown error'}`)
+        toast.error(t('wallet.test.failed', 'Connection failed: {{error}}', { error: result.error || 'Unknown error' }))
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Connection test failed')
+      toast.error(error instanceof Error ? error.message : t('wallet.test.error', 'Connection test failed'))
     } finally {
       setTesting(false)
     }
   }
 
   const handleDeleteWallet = async (environment: 'testnet' | 'mainnet') => {
-    if (!confirm(`Delete ${environment} wallet?`)) return
+    if (!confirm(t('wallet.delete.confirm', 'Delete {{env}} wallet?', { env: environment }))) return
     try {
       setLoading(true)
       const result = await deleteAccountWallet(accountId, environment)
       if (result.success) {
-        toast.success(`${environment} wallet deleted`)
+        toast.success(t('wallet.delete.success', '{{env}} wallet deleted', { env: environment }))
         await loadWalletInfo()
         onWalletConfigured?.()
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to delete wallet')
+      toast.error(error instanceof Error ? error.message : t('wallet.delete.failed', 'Failed to delete wallet'))
     } finally {
       setLoading(false)
     }
