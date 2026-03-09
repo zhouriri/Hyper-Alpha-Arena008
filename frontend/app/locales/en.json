@@ -1622,8 +1622,21 @@
     "range": "Range",
     "forwardPeriodLabel": "Prediction Window",
     "forwardPeriodHint": "How far ahead to predict returns (not K-line period)",
-    "confirmCompute": "This will compute factor values and effectiveness for all watchlist symbols. It may take a few minutes. Continue?",
+    "confirmCompute": "This will compute factor values and effectiveness for all watchlist symbols across all prediction windows.",
     "computeConfirmTitle": "Confirm Compute",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "startCompute": "Start Compute",
+    "estimateSymbols": "Symbols",
+    "estimateFactors": "Factors",
+    "estimateWindows": "Prediction Windows",
+    "estimateTime": "Estimated Time",
+    "phaseValues": "Computing factor values",
+    "phaseEffectiveness": "Computing effectiveness",
+    "alreadyRunning": "A computation is already running. Please wait.",
+    "resultSymbols": "Symbols Computed",
+    "resultEffectiveness": "Effectiveness Records",
+    "icTooltip": "Information Coefficient: correlation between factor and future returns. Higher |IC| = stronger prediction. Positive = same direction, negative = inverse.",
+    "icirTooltip": "IC Information Ratio: IC stability over time. Higher |ICIR| = more consistent prediction, not just a fluke.",
+    "winRateTooltip": "Percentage of times factor direction matched future price direction. Above 55% is considered strong."
   }
 }

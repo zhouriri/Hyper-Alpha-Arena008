@@ -27,6 +27,7 @@ class FactorComputationService:
     def __init__(self):
         self._running = False
         self._last_compute_time: Dict[str, float] = {}
+        self._progress: Dict = {"status": "idle"}
 
     # ── public API ──
 
@@ -48,20 +49,40 @@ class FactorComputationService:
     def get_last_compute_time(self, exchange: str) -> Optional[float]:
         return self._last_compute_time.get(exchange)
 
+    def get_progress(self) -> Dict:
+        return dict(self._progress)
+
+    def get_symbols(self, exchange: str) -> List[str]:
+        """Return watchlist symbols for estimation."""
+        db: Session = SessionLocal()
+        try:
+            return self._get_symbols_for_exchange(db, exchange)
+        finally:
+            db.close()
+
     def compute_now(self, exchange: str = "hyperliquid", period: str = "1h"):
         """Manual trigger: compute factors for one exchange immediately."""
         db: Session = SessionLocal()
         try:
             symbols = self._get_symbols_for_exchange(db, exchange)
             if not symbols:
+                self._progress = {"status": "idle"}
                 return {"computed": 0, "exchange": exchange}
+            total = len(symbols)
+            self._progress = {
+                "status": "running", "phase": "values",
+                "completed": 0, "total": total, "current_symbol": "",
+            }
             count = 0
-            for symbol in symbols:
+            for i, symbol in enumerate(symbols):
+                self._progress["current_symbol"] = symbol
+                self._progress["completed"] = i
                 try:
                     self._compute_for_symbol(db, symbol, period, exchange)
                     count += 1
                 except Exception as e:
                     logger.warning(f"[FactorEngine] {exchange}/{symbol} err: {e}")
+            self._progress = {"status": "idle"}
             self._last_compute_time[exchange] = time.time()
             return {"computed": count, "exchange": exchange}
         finally:
@@ -90,11 +111,10 @@ class FactorComputationService:
         """Get watchlist symbols for the given exchange."""
         try:
             if exchange == "binance":
-                from services.binance_symbol_service import binance_symbol_service
-                return binance_symbol_service.get_selected_symbols()
+                from services.binance_symbol_service import get_selected_symbols
             else:
-                from services.hyperliquid_symbol_service import hyperliquid_symbol_service
-                return hyperliquid_symbol_service.get_selected_symbols()
+                from services.hyperliquid_symbol_service import get_selected_symbols
+            return get_selected_symbols()
         except Exception:
             # Fallback: query kline table
             rows = db.execute(text(

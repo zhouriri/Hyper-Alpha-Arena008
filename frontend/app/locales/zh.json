@@ -1642,8 +1642,21 @@
     "range": "范围",
     "forwardPeriodLabel": "预测窗口",
     "forwardPeriodHint": "预测未来多长时间的收益率（非K线周期）",
-    "confirmCompute": "将为 Watchlist 中所有币种计算因子值和有效性，可能需要几分钟。是否继续？",
+    "confirmCompute": "将为 Watchlist 中所有币种计算因子值和有效性，覆盖所有预测窗口。",
     "computeConfirmTitle": "确认计算",
-    "loading": "加载中..."
+    "loading": "加载中...",
+    "startCompute": "开始计算",
+    "estimateSymbols": "币种数",
+    "estimateFactors": "因子数",
+    "estimateWindows": "预测窗口",
+    "estimateTime": "预计耗时",
+    "phaseValues": "计算因子值",
+    "phaseEffectiveness": "计算有效性",
+    "alreadyRunning": "已有计算任务正在执行，请稍候。",
+    "resultSymbols": "计算币种数",
+    "resultEffectiveness": "有效性记录数",
+    "icTooltip": "信息系数：因子与未来收益的相关性。|IC| 越大预测力越强。正值=同向，负值=反向，均有用。",
+    "icirTooltip": "IC 信息比率：IC 的稳定性指标。|ICIR| 越大说明预测力越稳定，不是偶然。",
+    "winRateTooltip": "因子方向与未来价格方向一致的比例。高于 55% 视为较强。"
   }
 }

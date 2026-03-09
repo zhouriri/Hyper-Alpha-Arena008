@@ -32,6 +32,7 @@ LOOKBACK_BARS = 500
 class FactorEffectivenessService:
     def __init__(self):
         self._running = False
+        self._progress: Dict = {"status": "idle"}
 
     def start(self):
         if self._running:
@@ -60,20 +61,32 @@ class FactorEffectivenessService:
         finally:
             db.close()
 
+    def get_progress(self) -> Dict:
+        return dict(self._progress)
+
     def compute_for_exchange(self, db: Session, exchange: str, period: str = "1h"):
         """Compute effectiveness for all factors on one exchange. Public API."""
         symbols = self._get_symbols(db, exchange)
         if not symbols:
+            self._progress = {"status": "idle"}
             return {"computed": 0, "exchange": exchange}
         today = date.today()
+        total = len(symbols)
+        self._progress = {
+            "status": "running", "phase": "effectiveness",
+            "completed": 0, "total": total, "current_symbol": "",
+        }
         count = 0
-        for symbol in symbols:
+        for i, symbol in enumerate(symbols):
+            self._progress["current_symbol"] = symbol
+            self._progress["completed"] = i
             try:
                 n = self._compute_symbol(db, exchange, symbol, period, today)
                 count += n
             except Exception as e:
                 logger.warning(f"[FactorEffectiveness] {exchange}/{symbol}: {e}")
         db.commit()
+        self._progress = {"status": "idle"}
         print(f"[FactorEffectiveness] {exchange}: {count} records", flush=True)
         return {"computed": count, "exchange": exchange}
 
@@ -82,11 +95,10 @@ class FactorEffectivenessService:
     def _get_symbols(self, db, exchange):
         try:
             if exchange == "binance":
-                from services.binance_symbol_service import binance_symbol_service
-                return binance_symbol_service.get_selected_symbols()
+                from services.binance_symbol_service import get_selected_symbols
             else:
-                from services.hyperliquid_symbol_service import hyperliquid_symbol_service
-                return hyperliquid_symbol_service.get_selected_symbols()
+                from services.hyperliquid_symbol_service import get_selected_symbols
+            return get_selected_symbols()
         except Exception:
             rows = db.execute(text(
                 "SELECT DISTINCT symbol FROM crypto_klines "

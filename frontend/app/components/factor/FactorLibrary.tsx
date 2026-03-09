@@ -9,8 +9,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
 } from '@/components/ui/dialog'
 import { apiRequest, getHyperliquidWatchlist, getBinanceWatchlist } from '@/lib/api'
-import { RefreshCw, Info, CheckCircle2 } from 'lucide-react'
+import { RefreshCw, Info, CheckCircle2, ArrowUpDown } from 'lucide-react'
 import ExchangeIcon from '@/components/exchange/ExchangeIcon'
+import PacmanLoader from '@/components/ui/pacman-loader'
 import type { ExchangeId } from '@/lib/types/exchange'
 
 const EXCHANGES: ExchangeId[] = ['hyperliquid', 'binance']
@@ -55,8 +56,13 @@ export default function FactorLibrary() {
   const [computing, setComputing] = useState(false)
   const [computeDialogOpen, setComputeDialogOpen] = useState(false)
   const [computeResult, setComputeResult] = useState<any>(null)
+  const [computeEstimate, setComputeEstimate] = useState<any>(null)
+  const [computeProgress, setComputeProgress] = useState<any>(null)
+  const [dialogStep, setDialogStep] = useState<'confirm' | 'progress' | 'done'>('confirm')
   const [countdown, setCountdown] = useState('')
   const [loading, setLoading] = useState(true)
+  const [sortCol, setSortCol] = useState<string>('icir')
+  const [sortDesc, setSortDesc] = useState(true)
 
   useEffect(() => {
     apiRequest('/factors/library').then(r => r.json()).then(setLibrary).catch(() => {})
@@ -97,32 +103,70 @@ export default function FactorLibrary() {
 
   useEffect(() => {
     if (!lastComputeTime) { setCountdown(''); return }
-    const interval = setInterval(() => {
+    const update = () => {
       const nextTs = lastComputeTime + 3600
-      const remaining = Math.max(0, nextTs - Date.now() / 1000)
-      if (remaining <= 0) { setCountdown('--:--'); return }
+      const remaining = nextTs - Date.now() / 1000
+      if (remaining <= 0) { setCountdown(''); return }
       const m = Math.floor(remaining / 60)
       const s = Math.floor(remaining % 60)
       setCountdown(`${m}:${s.toString().padStart(2, '0')}`)
-    }, 1000)
+    }
+    update()
+    const interval = setInterval(update, 1000)
     return () => clearInterval(interval)
   }, [lastComputeTime])
 
-  const handleCompute = async () => {
+  const handleComputeClick = async () => {
     setComputeDialogOpen(true)
+    setDialogStep('confirm')
     setComputeResult(null)
-    setComputing(true)
+    setComputeProgress(null)
+    setComputeEstimate(null)
     try {
-      const res = await apiRequest('/factors/compute', {
+      const est = await apiRequest(`/factors/compute/estimate?exchange=${exchange}`).then(r => r.json())
+      setComputeEstimate(est)
+    } catch { /* ignore */ }
+  }
+
+  const handleComputeConfirm = async () => {
+    setDialogStep('progress')
+    setComputing(true)
+    setComputeProgress(null)
+    try {
+      const startRes = await apiRequest('/factors/compute', {
         method: 'POST',
         body: JSON.stringify({ exchange, period }),
       }).then(r => r.json())
-      setComputeResult(res)
-      await loadData()
+      if (startRes.status === 'already_running') {
+        setComputeResult({ error: t('factors.alreadyRunning') })
+        setDialogStep('done')
+        setComputing(false)
+        return
+      }
+      // Poll progress
+      const poll = setInterval(async () => {
+        try {
+          const prog = await apiRequest('/factors/compute/progress').then(r => r.json())
+          setComputeProgress(prog)
+          if (prog.status === 'done' || prog.status === 'error' || prog.status === 'idle') {
+            clearInterval(poll)
+            setComputeResult(prog)
+            setDialogStep('done')
+            setComputing(false)
+            await loadData()
+          }
+        } catch { /* ignore poll errors */ }
+      }, 1500)
     } catch (e: any) {
       setComputeResult({ error: e.message || 'Unknown error' })
+      setDialogStep('done')
+      setComputing(false)
     }
-    setComputing(false)
+  }
+
+  const toggleSort = (col: string) => {
+    if (sortCol === col) setSortDesc(!sortDesc)
+    else { setSortCol(col); setSortDesc(true) }
   }
 
   const mergedRows = useMemo(() => {
@@ -132,12 +176,20 @@ export default function FactorLibrary() {
     const factors = categoryFilter === 'all'
       ? library.factors
       : library.factors.filter(f => f.category === categoryFilter)
-    return factors.map(f => {
+    const rows = factors.map(f => {
       const v = valMap.get(f.name)
       const e = effMap.get(f.name)
       return { ...f, value: v?.value ?? null, timestamp: v?.timestamp, ...e }
     })
-  }, [library, values, effectiveness, categoryFilter])
+    if (['ic_mean', 'icir', 'win_rate'].includes(sortCol)) {
+      rows.sort((a: any, b: any) => {
+        const av = Math.abs(a[sortCol] ?? 0)
+        const bv = Math.abs(b[sortCol] ?? 0)
+        return sortDesc ? bv - av : av - bv
+      })
+    }
+    return rows
+  }, [library, values, effectiveness, categoryFilter, sortCol, sortDesc])
 
   const categories = library?.categories || []
   const catLabels = library?.category_labels || {}
@@ -207,7 +259,7 @@ export default function FactorLibrary() {
               <TooltipContent><p className="text-xs max-w-[200px]">{t('factors.forwardPeriodHint')}</p></TooltipContent>
             </Tooltip>
             <Select value={forwardPeriod} onValueChange={setForwardPeriod}>
-              <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {FORWARD_PERIODS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
               </SelectContent>
@@ -215,7 +267,7 @@ export default function FactorLibrary() {
           </div>
 
           <Button variant="outline" size="sm" className="self-end" disabled={computing || !symbol}
-            onClick={handleCompute}>
+            onClick={handleComputeClick}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1 ${computing ? 'animate-spin' : ''}`} />
             {computing ? t('factors.computing') : t('factors.manualCompute')}
           </Button>
@@ -226,39 +278,101 @@ export default function FactorLibrary() {
           </span>
         </div>
 
-        {/* Compute progress dialog */}
-        <Dialog open={computeDialogOpen} onOpenChange={setComputeDialogOpen}>
+        {/* Compute dialog: confirm → progress → done */}
+        <Dialog open={computeDialogOpen} onOpenChange={(open) => {
+          if (!open && computing) return
+          setComputeDialogOpen(open)
+        }}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>{t('factors.computeConfirmTitle')}</DialogTitle>
-              <DialogDescription>{exchange} / {period}</DialogDescription>
+              <DialogDescription>{exchange} / {period} K-line</DialogDescription>
             </DialogHeader>
-            <div className="py-4">
-              {computing ? (
-                <div className="flex flex-col items-center gap-3">
-                  <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-                  <p className="text-sm">{t('factors.computing')}</p>
-                  <p className="text-xs text-muted-foreground">{t('factors.confirmCompute')}</p>
+
+            {dialogStep === 'confirm' && (
+              <>
+                <div className="py-4 space-y-3">
+                  <p className="text-sm">{t('factors.confirmCompute')}</p>
+                  {computeEstimate && (
+                    <div className="rounded-md bg-muted p-3 space-y-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">{t('factors.estimateSymbols')} ({computeEstimate.symbol_count}):</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {computeEstimate.symbols?.map((s: string) => (
+                            <Badge key={s} variant="outline" className="text-xs">{s}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                      <p>{t('factors.estimateFactors')}: <span className="font-medium">{computeEstimate.factor_count}</span></p>
+                      <p>{t('factors.estimateWindows')}: <span className="font-medium">{computeEstimate.forward_periods?.join(', ')}</span></p>
+                      <p>{t('factors.estimateTime')}: <span className="font-medium">~{Math.max(1, Math.ceil((computeEstimate.estimated_seconds || 0) / 60))} min</span></p>
+                    </div>
+                  )}
                 </div>
-              ) : computeResult?.error ? (
-                <div className="text-center text-red-500 text-sm">{computeResult.error}</div>
-              ) : computeResult ? (
+                <DialogFooter className="gap-2 sm:gap-0">
+                  <DialogClose asChild>
+                    <Button variant="outline" size="sm">{t('common.cancel')}</Button>
+                  </DialogClose>
+                  <Button size="sm" onClick={handleComputeConfirm}
+                    disabled={!computeEstimate || computeEstimate.symbol_count === 0}>
+                    {t('factors.startCompute')}
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
+
+            {dialogStep === 'progress' && (
+              <div className="py-6">
                 <div className="flex flex-col items-center gap-3">
-                  <CheckCircle2 className="h-8 w-8 text-green-500" />
-                  <p className="text-sm font-medium">{t('factors.computeSuccess')}</p>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>Factor Values: {computeResult.values_computed ?? 0}</p>
-                    <p>Effectiveness: {computeResult.effectiveness_computed ?? 0}</p>
-                  </div>
+                  <PacmanLoader className="w-16 h-8 text-primary" />
+                  <p className="text-sm font-medium">{t('factors.computing')}</p>
+                  {computeProgress?.status === 'running' && (
+                    <div className="w-full space-y-2">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>
+                          {computeProgress.phase === 'values'
+                            ? t('factors.phaseValues')
+                            : t('factors.phaseEffectiveness')}
+                        </span>
+                        <span>{computeProgress.completed}/{computeProgress.total}</span>
+                      </div>
+                      <div className="w-full bg-muted rounded-full h-2">
+                        <div
+                          className="bg-primary h-2 rounded-full transition-all duration-500"
+                          style={{ width: `${computeProgress.total > 0 ? (computeProgress.completed / computeProgress.total) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-center text-muted-foreground">
+                        {computeProgress.current_symbol}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              ) : null}
-            </div>
-            {!computing && (
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button variant="outline" size="sm">{t('common.close')}</Button>
-                </DialogClose>
-              </DialogFooter>
+              </div>
+            )}
+
+            {dialogStep === 'done' && (
+              <>
+                <div className="py-4">
+                  {computeResult?.error ? (
+                    <div className="text-center text-red-500 text-sm">{computeResult.error}</div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-3">
+                      <CheckCircle2 className="h-8 w-8 text-green-500" />
+                      <p className="text-sm font-medium">{t('factors.computeSuccess')}</p>
+                      <div className="text-xs text-muted-foreground space-y-1">
+                        <p>{t('factors.resultSymbols')}: {computeResult?.values_computed ?? 0}</p>
+                        <p>{t('factors.resultEffectiveness')}: {computeResult?.effectiveness_computed ?? 0}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button variant="outline" size="sm">{t('common.close')}</Button>
+                  </DialogClose>
+                </DialogFooter>
+              </>
             )}
           </DialogContent>
         </Dialog>
@@ -282,10 +396,43 @@ export default function FactorLibrary() {
               <TableRow>
                 <TableHead>{t('factors.name')}</TableHead>
                 <TableHead>{t('factors.category')}</TableHead>
-                <TableHead className="text-right">{t('factors.value')}</TableHead>
-                <TableHead className="text-right">IC</TableHead>
-                <TableHead className="text-right">ICIR</TableHead>
-                <TableHead className="text-right">{t('factors.winRate')}</TableHead>
+                <TableHead className="text-right">{t('factors.value')} (1h K-line)</TableHead>
+                <TableHead className="text-right">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('ic_mean')}>
+                        IC {sortCol === 'ic_mean' && <ArrowUpDown className="h-3 w-3" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[220px]">
+                      <p className="text-xs">{t('factors.icTooltip')}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TableHead>
+                <TableHead className="text-right">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('icir')}>
+                        ICIR {sortCol === 'icir' && <ArrowUpDown className="h-3 w-3" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[220px]">
+                      <p className="text-xs">{t('factors.icirTooltip')}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TableHead>
+                <TableHead className="text-right">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('win_rate')}>
+                        {t('factors.winRate')} {sortCol === 'win_rate' && <ArrowUpDown className="h-3 w-3" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[220px]">
+                      <p className="text-xs">{t('factors.winRateTooltip')}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TableHead>
                 <TableHead className="text-right">{t('factors.samples')}</TableHead>
               </TableRow>
             </TableHeader>
