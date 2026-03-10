@@ -616,6 +616,88 @@ HYPER_AI_TOOLS = [
                 "required": ["binding_id"]
             }
         }
+    },
+    # --- Factor System Tools ---
+    {
+        "type": "function",
+        "function": {
+            "name": "query_factors",
+            "description": "Query factor library and effectiveness data. Without symbol: returns factor list. With symbol: returns factor values and effectiveness ranking for that symbol.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "exchange": {"type": "string", "enum": ["hyperliquid", "binance"], "description": "Exchange (required)"},
+                    "symbol": {"type": "string", "description": "Trading symbol (e.g., BTC). If omitted, returns factor library list."},
+                    "factor_name": {"type": "string", "description": "Specific factor name for detailed info + history"},
+                    "forward_period": {"type": "string", "enum": ["1h", "4h", "12h", "24h"], "description": "Forward period for effectiveness (default: 4h)"}
+                },
+                "required": ["exchange"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_factor",
+            "description": "Evaluate a custom factor expression against real market data. Returns syntax validation, latest value, and IC/ICIR/win_rate for each forward period.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string", "description": "Factor expression (e.g., 'EMA(close, 7) / EMA(close, 21) - 1')"},
+                    "symbol": {"type": "string", "description": "Trading symbol (e.g., BTC)"},
+                    "exchange": {"type": "string", "enum": ["hyperliquid", "binance"], "description": "Exchange (required)"}
+                },
+                "required": ["expression", "symbol", "exchange"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_factor",
+            "description": "Save a custom factor expression to the factor library.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Factor name (unique, descriptive)"},
+                    "expression": {"type": "string", "description": "Factor expression"},
+                    "description": {"type": "string", "description": "Brief description of what the factor measures"}
+                },
+                "required": ["name", "expression"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_factor",
+            "description": "Edit an existing custom factor. Only custom factors can be edited, not built-in ones.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "factor_id": {"type": "integer", "description": "Custom factor ID (required)"},
+                    "name": {"type": "string", "description": "New name (optional)"},
+                    "expression": {"type": "string", "description": "New expression (optional)"},
+                    "description": {"type": "string", "description": "New description (optional)"}
+                },
+                "required": ["factor_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compute_factor",
+            "description": "Run computation for a specific factor across all watchlist symbols on an exchange. Updates factor values and effectiveness metrics.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "factor_name": {"type": "string", "description": "Factor name to compute"},
+                    "exchange": {"type": "string", "enum": ["hyperliquid", "binance"], "description": "Exchange (required)"}
+                },
+                "required": ["factor_name", "exchange"]
+            }
+        }
     }
 ]
 
@@ -2277,6 +2359,330 @@ def execute_save_memory(
         return json.dumps({"error": str(e)})
 
 
+# =============================================================================
+# Factor System Tool Handlers
+# =============================================================================
+
+def execute_query_factors(
+    db: Session, exchange: str, symbol: str = None,
+    factor_name: str = None, forward_period: str = "4h"
+) -> str:
+    """Query factor library, values, and effectiveness."""
+    from services.factor_registry import FACTOR_REGISTRY, CATEGORY_LABELS
+    from database.models import CustomFactor
+
+    try:
+        # If specific factor requested, return detailed info + history
+        if factor_name and symbol:
+            row = db.execute(text("""
+                SELECT factor_name, factor_category, ic_mean, ic_std, icir,
+                    win_rate, sample_count, calc_date
+                FROM factor_effectiveness
+                WHERE factor_name = :fn AND symbol = :sym AND period = '1h'
+                    AND forward_period = :fp AND exchange = :ex
+                ORDER BY calc_date DESC LIMIT 1
+            """), {"fn": factor_name, "sym": symbol, "fp": forward_period, "ex": exchange}).fetchone()
+
+            val_row = db.execute(text("""
+                SELECT value, timestamp FROM factor_values
+                WHERE factor_name = :fn AND symbol = :sym AND period = '1h' AND exchange = :ex
+                ORDER BY timestamp DESC LIMIT 1
+            """), {"fn": factor_name, "sym": symbol, "ex": exchange}).fetchone()
+
+            history = db.execute(text("""
+                SELECT calc_date, ic_mean, icir, win_rate, sample_count
+                FROM factor_effectiveness
+                WHERE factor_name = :fn AND symbol = :sym AND period = '1h'
+                    AND forward_period = :fp AND exchange = :ex
+                ORDER BY calc_date DESC LIMIT 14
+            """), {"fn": factor_name, "sym": symbol, "fp": forward_period, "ex": exchange}).fetchall()
+
+            return json.dumps({
+                "factor_name": factor_name,
+                "symbol": symbol, "exchange": exchange, "forward_period": forward_period,
+                "latest_value": float(val_row[0]) if val_row else None,
+                "effectiveness": {
+                    "ic_mean": float(row[2]), "ic_std": float(row[3]),
+                    "icir": float(row[4]), "win_rate": float(row[5]),
+                    "sample_count": row[6], "calc_date": str(row[7])
+                } if row else None,
+                "history": [
+                    {"date": str(r[0]), "ic_mean": float(r[1]), "icir": float(r[2]),
+                     "win_rate": float(r[3]), "sample_count": r[4]}
+                    for r in history
+                ]
+            }, indent=2)
+
+        # If symbol provided, return values + effectiveness ranking
+        if symbol:
+            eff_rows = db.execute(text("""
+                SELECT DISTINCT ON (factor_name)
+                    factor_name, factor_category, ic_mean, icir, win_rate, sample_count
+                FROM factor_effectiveness
+                WHERE symbol = :sym AND period = '1h' AND forward_period = :fp AND exchange = :ex
+                ORDER BY factor_name, calc_date DESC
+            """), {"sym": symbol, "fp": forward_period, "ex": exchange}).fetchall()
+
+            items = [
+                {"factor_name": r[0], "category": r[1], "ic_mean": float(r[2]),
+                 "icir": float(r[3]), "win_rate": float(r[4]), "sample_count": r[5]}
+                for r in eff_rows
+            ]
+            items.sort(key=lambda x: abs(x.get("icir") or 0), reverse=True)
+
+            return json.dumps({
+                "symbol": symbol, "exchange": exchange, "forward_period": forward_period,
+                "factor_count": len(items),
+                "top_factors": items[:15],
+                "note": f"Showing top 15 by |ICIR| out of {len(items)} factors"
+            }, indent=2)
+
+        # No symbol: return factor library
+        custom_rows = db.query(CustomFactor).filter(CustomFactor.is_active == True).all()
+        factors = [
+            {"name": f["name"], "category": f["category"], "source": "builtin",
+             "display_name": f.get("display_name", f["name"])}
+            for f in FACTOR_REGISTRY
+        ] + [
+            {"name": cf.name, "category": "custom", "source": cf.source or "custom",
+             "expression": cf.expression, "custom_id": cf.id}
+            for cf in custom_rows
+        ]
+        return json.dumps({
+            "exchange": exchange,
+            "total_factors": len(factors),
+            "builtin_count": len(FACTOR_REGISTRY),
+            "custom_count": len(custom_rows),
+            "factors": factors
+        }, indent=2)
+
+    except Exception as e:
+        logger.error(f"[query_factors] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_evaluate_factor(
+    db: Session, expression: str, symbol: str, exchange: str
+) -> str:
+    """Evaluate a factor expression against real market data (full local history)."""
+    from services.factor_expression_engine import factor_expression_engine
+    from services.factor_data_provider import ensure_kline_coverage
+    import pandas as pd
+
+    try:
+        ok, err = factor_expression_engine.validate(expression)
+        if not ok:
+            return json.dumps({"error": err})
+
+        klines = ensure_kline_coverage(db, exchange, symbol, "1h")
+        if not klines or len(klines) < 50:
+            return json.dumps({"error": f"Insufficient K-line data for {symbol} on {exchange}"})
+
+        results, err = factor_expression_engine.evaluate_ic(expression, klines)
+        if results is None:
+            return json.dumps({"error": err})
+
+        series, _ = factor_expression_engine.execute(expression, klines)
+        latest_value = None
+        if series is not None and len(series) > 0:
+            last = series.iloc[-1]
+            latest_value = float(last) if not pd.isna(last) else None
+
+        return json.dumps({
+            "expression": expression, "symbol": symbol, "exchange": exchange,
+            "latest_value": latest_value,
+            "effectiveness": results
+        }, indent=2)
+
+    except Exception as e:
+        logger.error(f"[evaluate_factor] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_save_factor(db: Session, name: str, expression: str, description: str = "") -> str:
+    """Save a custom factor expression to the library."""
+    from database.models import CustomFactor
+    from services.factor_expression_engine import factor_expression_engine
+
+    try:
+        ok, err = factor_expression_engine.validate(expression)
+        if not ok:
+            return json.dumps({"error": f"Invalid expression: {err}"})
+
+        existing = db.query(CustomFactor).filter(CustomFactor.name == name).first()
+        if existing:
+            return json.dumps({"error": f"Factor name '{name}' already exists"})
+
+        factor = CustomFactor(
+            name=name, expression=expression,
+            description=description, category="custom", source="ai"
+        )
+        db.add(factor)
+        db.commit()
+        db.refresh(factor)
+
+        return json.dumps({
+            "success": True,
+            "factor_id": factor.id,
+            "name": factor.name,
+            "expression": factor.expression,
+            "action": "created",
+            "view_url": "/#factor-library",
+            "note": f"Factor '{name}' saved. Use compute_factor to run full evaluation across all symbols."
+        }, indent=2)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[save_factor] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_edit_factor(
+    db: Session, factor_id: int,
+    name: str = None, expression: str = None, description: str = None
+) -> str:
+    """Edit an existing custom factor."""
+    from database.models import CustomFactor
+    from services.factor_expression_engine import factor_expression_engine
+
+    try:
+        factor = db.query(CustomFactor).filter(CustomFactor.id == factor_id).first()
+        if not factor:
+            return json.dumps({"error": f"Custom factor with id={factor_id} not found"})
+
+        if expression:
+            ok, err = factor_expression_engine.validate(expression)
+            if not ok:
+                return json.dumps({"error": f"Invalid expression: {err}"})
+            factor.expression = expression
+
+        if name:
+            dup = db.query(CustomFactor).filter(
+                CustomFactor.name == name, CustomFactor.id != factor_id
+            ).first()
+            if dup:
+                return json.dumps({"error": f"Factor name '{name}' already exists"})
+            factor.name = name
+
+        if description is not None:
+            factor.description = description
+
+        db.commit()
+        db.refresh(factor)
+
+        return json.dumps({
+            "success": True,
+            "factor_id": factor.id,
+            "name": factor.name,
+            "expression": factor.expression,
+            "action": "updated",
+            "view_url": "/#factor-library",
+            "note": f"Factor '{factor.name}' updated."
+        }, indent=2)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[edit_factor] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
+def execute_compute_factor(db: Session, factor_name: str, exchange: str) -> str:
+    """Compute a single factor across all watchlist symbols using full local data."""
+    from services.factor_registry import FACTOR_REGISTRY
+    from services.factor_expression_engine import factor_expression_engine
+    from services.factor_data_provider import ensure_kline_coverage
+    from services.factor_effectiveness_service import FactorEffectivenessService
+    from services.technical_indicators import calculate_indicators
+    from database.models import CustomFactor
+    import pandas as pd
+    import numpy as np
+    from datetime import date
+
+    try:
+        builtin_def = next((f for f in FACTOR_REGISTRY if f["name"] == factor_name), None)
+        custom_factor = None
+        if not builtin_def:
+            custom_factor = db.query(CustomFactor).filter(
+                CustomFactor.name == factor_name, CustomFactor.is_active == True
+            ).first()
+            if not custom_factor:
+                return json.dumps({"error": f"Factor '{factor_name}' not found in builtin or custom factors"})
+
+        try:
+            if exchange == "binance":
+                from services.binance_symbol_service import get_selected_symbols
+            else:
+                from services.hyperliquid_symbol_service import get_selected_symbols
+            symbols = get_selected_symbols()
+        except Exception:
+            symbols = []
+
+        if not symbols:
+            return json.dumps({"error": f"No watchlist symbols for {exchange}"})
+
+        today = date.today()
+        forward_periods = {"1h": 1, "4h": 4, "12h": 12, "24h": 24}
+        eff_svc = FactorEffectivenessService()
+        computed = 0
+        icir_values = []
+
+        for symbol in symbols:
+            klines = ensure_kline_coverage(db, exchange, symbol, "1h")
+            if not klines or len(klines) < 50:
+                continue
+
+            n_bars = len(klines)
+            closes = [float(k["close"]) for k in klines]
+
+            # Get factor series (vectorized)
+            if custom_factor:
+                series, err = factor_expression_engine.execute(custom_factor.expression, klines)
+                if series is None:
+                    continue
+                fvals = [None if pd.isna(v) else float(v) for v in series.tolist()]
+            else:
+                # Builtin: vectorized extraction
+                if builtin_def.get("compute_type") == "technical":
+                    tech_keys = [builtin_def["indicator_key"]]
+                    indicators = calculate_indicators(klines, tech_keys)
+                    fvals = eff_svc._extract_technical_series(builtin_def, indicators, klines, n_bars)
+                elif builtin_def.get("compute_type") == "derived":
+                    fvals = eff_svc._extract_derived_series(builtin_def, klines, n_bars)
+                else:
+                    continue  # microstructure not supported for single-factor compute
+                if fvals is None:
+                    continue
+
+            for fp_label, fp_hours in forward_periods.items():
+                aligned_fv, aligned_rt = eff_svc._align_series(fvals, closes, fp_hours, n_bars)
+                if len(aligned_fv) < 10:
+                    continue
+                metrics = eff_svc._calc_metrics(aligned_fv, aligned_rt)
+                category = custom_factor.category if custom_factor else builtin_def["category"]
+                eff_svc._upsert(db, exchange, factor_name, category,
+                                symbol, "1h", fp_label, today, n_bars, metrics)
+                computed += 1
+                if fp_label == "4h":
+                    icir_values.append(metrics["icir"])
+
+        db.commit()
+
+        avg_icir = round(sum(icir_values) / len(icir_values), 4) if icir_values else 0
+        return json.dumps({
+            "success": True,
+            "factor_name": factor_name, "exchange": exchange,
+            "symbols_computed": len(icir_values),
+            "total_records": computed,
+            "avg_icir_4h": avg_icir,
+            "note": f"Computed {factor_name} across {len(icir_values)} symbols ({n_bars} bars each). Average 4h ICIR: {avg_icir}"
+        }, indent=2)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[compute_factor] Error: {e}")
+        return json.dumps({"error": str(e)})
+
+
 def execute_hyper_ai_tool(
     db: Session, tool_name: str, arguments: Dict[str, Any],
     user_id: int = 1, api_config: Optional[Dict[str, Any]] = None
@@ -2485,6 +2891,43 @@ def execute_hyper_ai_tool(
                 content=arguments.get("content", ""),
                 importance=arguments.get("importance", 0.5),
                 api_config=api_config
+            )
+
+        # --- Factor tools ---
+        elif tool_name == "query_factors":
+            return execute_query_factors(
+                db, exchange=arguments.get("exchange", "hyperliquid"),
+                symbol=arguments.get("symbol"),
+                factor_name=arguments.get("factor_name"),
+                forward_period=arguments.get("forward_period", "4h")
+            )
+
+        elif tool_name == "evaluate_factor":
+            return execute_evaluate_factor(
+                db, expression=arguments.get("expression", ""),
+                symbol=arguments.get("symbol", "BTC"),
+                exchange=arguments.get("exchange", "hyperliquid")
+            )
+
+        elif tool_name == "save_factor":
+            return execute_save_factor(
+                db, name=arguments.get("name", ""),
+                expression=arguments.get("expression", ""),
+                description=arguments.get("description", "")
+            )
+
+        elif tool_name == "edit_factor":
+            return execute_edit_factor(
+                db, factor_id=arguments.get("factor_id"),
+                name=arguments.get("name"),
+                expression=arguments.get("expression"),
+                description=arguments.get("description")
+            )
+
+        elif tool_name == "compute_factor":
+            return execute_compute_factor(
+                db, factor_name=arguments.get("factor_name", ""),
+                exchange=arguments.get("exchange", "hyperliquid")
             )
 
         # --- Delete tools ---

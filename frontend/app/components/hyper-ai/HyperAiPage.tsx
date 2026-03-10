@@ -79,7 +79,7 @@ interface ToolCallLogEntry {
  * Extracted from tool_calls_log when save_xxx tools return success: true.
  */
 interface CreatedEntityCard {
-  type: 'prompt' | 'program' | 'signal_pool' | 'ai_trader'
+  type: 'prompt' | 'program' | 'signal_pool' | 'ai_trader' | 'factor'
   id: number
   name: string
   content?: string  // template_text for prompt, code for program, JSON for signal_pool
@@ -1393,7 +1393,7 @@ const MessageBubble = memo(function MessageBubble({
    */
   const createdEntities: CreatedEntityCard[] = toolCallsLog
     .filter(entry => {
-      if (!['save_prompt', 'save_program', 'save_signal_pool', 'create_ai_trader'].includes(entry.tool)) return false
+      if (!['save_prompt', 'save_program', 'save_signal_pool', 'create_ai_trader', 'save_factor'].includes(entry.tool)) return false
       try {
         const result = JSON.parse(entry.result)
         return result.success === true && result.view_url
@@ -1407,13 +1407,14 @@ const MessageBubble = memo(function MessageBubble({
         save_prompt: 'prompt',
         save_program: 'program',
         save_signal_pool: 'signal_pool',
-        create_ai_trader: 'ai_trader'
+        create_ai_trader: 'ai_trader',
+        save_factor: 'factor'
       }
       return {
         type: toolToType[entry.tool],
-        id: result.prompt_id || result.program_id || result.pool_id || result.trader_id,
+        id: result.prompt_id || result.program_id || result.pool_id || result.trader_id || result.factor_id,
         name: result.name || result.pool_name || result.trader_name,
-        content: result.template_text || result.code || (result.signals ? JSON.stringify(result.signals, null, 2) : undefined),
+        content: result.template_text || result.code || result.expression || (result.signals ? JSON.stringify(result.signals, null, 2) : undefined),
         viewUrl: result.view_url
       } as CreatedEntityCard
     })
@@ -1515,7 +1516,8 @@ const MessageBubble = memo(function MessageBubble({
                 prompt: { label: t('hyperAi.createdPrompt', 'Prompt Created'), icon: '📝', color: 'border-l-green-500' },
                 program: { label: t('hyperAi.createdProgram', 'Program Created'), icon: '🐍', color: 'border-l-blue-500' },
                 signal_pool: { label: t('hyperAi.createdSignalPool', 'Signal Pool Created'), icon: '📊', color: 'border-l-purple-500' },
-                ai_trader: { label: t('hyperAi.createdAiTrader', 'AI Trader Created'), icon: '🤖', color: 'border-l-amber-500' }
+                ai_trader: { label: t('hyperAi.createdAiTrader', 'AI Trader Created'), icon: '🤖', color: 'border-l-amber-500' },
+                factor: { label: t('hyperAi.createdFactor', 'Factor Saved'), icon: '📐', color: 'border-l-violet-500' }
               }
               const { label, icon, color } = typeLabels[entity.type]
 

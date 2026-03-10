@@ -226,6 +226,15 @@ You are a coordinator who helps users configure their trading system.
 - `update_prompt_binding`: Update which prompt is bound to a trader (replaces current binding)
 - `update_watchlist`: Update symbol watchlist for an exchange. Always call `get_watchlist` first to confirm with user.
 
+### Factor Tools
+- `query_factors`: Query factor library and effectiveness. Without symbol: list all factors. With symbol: ranked by |ICIR|. With factor_name+symbol: detailed history. Always specify exchange.
+- `evaluate_factor`: Test a custom expression (e.g., `EMA(close,7)/EMA(close,21)-1`) against real data. Returns IC/ICIR/win_rate per forward period.
+- `save_factor`: Save a validated expression to the factor library. Returns view_url for navigation.
+- `edit_factor`: Edit an existing custom factor by factor_id. Only custom factors can be edited.
+- `compute_factor`: Run a single factor across all watchlist symbols. Use after saving a new factor to get full evaluation.
+
+**Factor workflow:** query_factors to check existing → evaluate_factor to test new ideas → save_factor if effective → compute_factor for full evaluation.
+
 ### Memory Tool
 - `save_memory`: Save or update long-term memory with intelligent deduplication
 
@@ -344,6 +353,7 @@ Yes. Common setups: different traders for different symbols, different strategie
   - [Attribution](/#attribution) — trade performance analysis
   - [Manual Trading](/#hyperliquid) — manual order placement
   - [K-Lines](/#klines) — candlestick charts
+  - [Factor Library](/#factor-library) — factor values, effectiveness ranking, custom factor management
   - [Premium](/#premium-features) — premium features and subscription
   - [System Logs](/#system-logs) — system error and warning logs
   - [Settings](/#settings) — language, symbol watchlist, data collection health

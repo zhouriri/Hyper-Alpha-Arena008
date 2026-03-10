@@ -238,14 +238,29 @@ def _run_compute_background(exchange: str, period: str):
 
 
 @router.get("/compute/estimate")
-async def compute_estimate(exchange: str = Query("hyperliquid")):
-    """Return symbol list and estimated duration before user confirms."""
+async def compute_estimate(exchange: str = Query("hyperliquid"), db: Session = Depends(get_db)):
+    """Return symbol list, data coverage, and estimated duration."""
     from services.factor_computation_service import factor_computation_service
     from services.factor_registry import FACTOR_REGISTRY
 
     symbols = factor_computation_service.get_symbols(exchange)
     factor_count = len(FACTOR_REGISTRY)
-    estimated_seconds = len(symbols) * 8
+
+    # Query actual data coverage per symbol
+    coverage = {}
+    if symbols:
+        rows = db.execute(text("""
+            SELECT symbol, COUNT(*) as cnt
+            FROM crypto_klines
+            WHERE exchange = :ex AND period = '1h' AND symbol = ANY(:syms)
+            GROUP BY symbol
+        """), {"ex": exchange, "syms": symbols}).fetchall()
+        coverage = {r[0]: r[1] for r in rows}
+
+    total_bars = sum(coverage.values())
+    avg_bars = total_bars // len(symbols) if symbols else 0
+    # Vectorized: ~2s per symbol for indicator computation + IC calculation
+    estimated_seconds = len(symbols) * 2
 
     return {
         "exchange": exchange,
@@ -253,6 +268,8 @@ async def compute_estimate(exchange: str = Query("hyperliquid")):
         "symbol_count": len(symbols),
         "factor_count": factor_count,
         "forward_periods": ["1h", "4h", "12h", "24h"],
+        "avg_bars_per_symbol": avg_bars,
+        "total_bars": total_bars,
         "estimated_seconds": estimated_seconds,
     }
 
@@ -371,6 +388,41 @@ async def delete_custom_factor(factor_id: int, db: Session = Depends(get_db)):
     db.delete(factor)
     db.commit()
     return {"status": "ok"}
+
+
+class EditCustomFactorRequest(BaseModel):
+    name: Optional[str] = None
+    expression: Optional[str] = None
+    description: Optional[str] = None
+
+
+@router.put("/custom/{factor_id}")
+async def edit_custom_factor(factor_id: int, req: EditCustomFactorRequest, db: Session = Depends(get_db)):
+    """Edit an existing custom factor."""
+    factor = db.query(CustomFactor).filter(CustomFactor.id == factor_id).first()
+    if not factor:
+        return {"status": "error", "error": "Factor not found"}
+
+    if req.expression:
+        ok, err = factor_expression_engine.validate(req.expression)
+        if not ok:
+            return {"status": "error", "error": err}
+        factor.expression = req.expression
+
+    if req.name:
+        dup = db.query(CustomFactor).filter(
+            CustomFactor.name == req.name, CustomFactor.id != factor_id
+        ).first()
+        if dup:
+            return {"status": "error", "error": f"Factor name '{req.name}' already exists"}
+        factor.name = req.name
+
+    if req.description is not None:
+        factor.description = req.description
+
+    db.commit()
+    db.refresh(factor)
+    return {"status": "ok", "id": factor.id, "name": factor.name}
 
 
 # ── Expression Evaluation ──
