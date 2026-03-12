@@ -107,6 +107,7 @@ class MarketFlowCollector:
         self.last_flush_time = time.time()
         self.flush_timer: Optional[threading.Timer] = None
         self.health_check_timer: Optional[threading.Timer] = None
+        self.flush_generation = 0  # Incremented on reconnect to stop orphan timer chains
 
         # Reconnection state
         self.reconnect_attempts = 0
@@ -531,8 +532,8 @@ class MarketFlowCollector:
             self.last_update_time["asset_ctx"] = now
             self.last_update_time["trades"] = now
 
-            # Re-align flush timer to 15-second boundary after reconnect
-            # This ensures real-time detection continues to match backtest check_points
+            # Increment generation to stop any orphan timer chains, then start fresh
+            self.flush_generation += 1
             if self.flush_timer:
                 self.flush_timer.cancel()
             self._schedule_flush(align_to_boundary=True)
@@ -607,13 +608,17 @@ class MarketFlowCollector:
             delay = next_boundary - now
             logger.info(f"[Flush] Aligning to boundary, waiting {delay:.2f}s until next flush")
 
-        self.flush_timer = threading.Timer(delay, self._flush_and_reschedule)
+        gen = self.flush_generation
+        self.flush_timer = threading.Timer(delay, self._flush_and_reschedule, args=(gen,))
         self.flush_timer.daemon = True
         self.flush_timer.start()
 
-    def _flush_and_reschedule(self):
+    def _flush_and_reschedule(self, generation: int = 0):
         """Flush data and schedule next flush"""
         if not self.running:
+            return
+        # Stop orphan timer chains from previous reconnects
+        if generation != self.flush_generation:
             return
         self._flush_to_database()
         # Always re-align to boundary to prevent cumulative drift
@@ -677,59 +682,39 @@ class MarketFlowCollector:
             logger.error(f"Error in signal detection: {e}", exc_info=True)
 
     def _flush_trades(self, db, symbol: str, timestamp_ms: int):
-        """Flush trade buffer for a symbol"""
-        from database.models import MarketTradesAggregated
-
+        """Flush trade buffer for a symbol using native PostgreSQL upsert"""
         with self.buffer_lock:
             buffer = self.trade_buffers.get(symbol)
             if not buffer or buffer.total_volume == 0:
                 return
 
-            # Calculate VWAP
             vwap = None
             if buffer.total_volume > 0:
                 vwap = buffer.total_notional / buffer.total_volume
 
-            # Upsert: check if record exists, update or insert
-            existing = db.query(MarketTradesAggregated).filter(
-                MarketTradesAggregated.exchange == "hyperliquid",
-                MarketTradesAggregated.symbol == symbol,
-                MarketTradesAggregated.timestamp == timestamp_ms
-            ).first()
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from database.models import MarketTradesAggregated
 
-            if existing:
-                existing.taker_buy_volume = buffer.taker_buy_volume
-                existing.taker_sell_volume = buffer.taker_sell_volume
-                existing.taker_buy_count = buffer.taker_buy_count
-                existing.taker_sell_count = buffer.taker_sell_count
-                existing.taker_buy_notional = buffer.taker_buy_notional
-                existing.taker_sell_notional = buffer.taker_sell_notional
-                existing.vwap = vwap
-                existing.high_price = buffer.high_price
-                existing.low_price = buffer.low_price
-            else:
-                record = MarketTradesAggregated(
-                    exchange="hyperliquid",
-                    symbol=symbol,
-                    timestamp=timestamp_ms,
-                    taker_buy_volume=buffer.taker_buy_volume,
-                    taker_sell_volume=buffer.taker_sell_volume,
-                    taker_buy_count=buffer.taker_buy_count,
-                    taker_sell_count=buffer.taker_sell_count,
-                    taker_buy_notional=buffer.taker_buy_notional,
-                    taker_sell_notional=buffer.taker_sell_notional,
-                    vwap=vwap,
-                    high_price=buffer.high_price,
-                    low_price=buffer.low_price,
-                )
-                db.add(record)
-
+            values = dict(
+                exchange="hyperliquid", symbol=symbol, timestamp=timestamp_ms,
+                taker_buy_volume=buffer.taker_buy_volume,
+                taker_sell_volume=buffer.taker_sell_volume,
+                taker_buy_count=buffer.taker_buy_count,
+                taker_sell_count=buffer.taker_sell_count,
+                taker_buy_notional=buffer.taker_buy_notional,
+                taker_sell_notional=buffer.taker_sell_notional,
+                vwap=vwap, high_price=buffer.high_price, low_price=buffer.low_price,
+            )
+            update_cols = {k: v for k, v in values.items() if k not in ("exchange", "symbol", "timestamp")}
+            stmt = pg_insert(MarketTradesAggregated).values(**values).on_conflict_do_update(
+                index_elements=["exchange", "symbol", "timestamp"],
+                set_=update_cols,
+            )
+            db.execute(stmt)
             buffer.reset()
 
     def _flush_orderbook(self, db, symbol: str, timestamp_ms: int):
-        """Flush orderbook snapshot for a symbol"""
-        from database.models import MarketOrderbookSnapshots
-
+        """Flush orderbook snapshot for a symbol using native PostgreSQL upsert"""
         # Skip if data is stale (WebSocket disconnected)
         l2book_age = time.time() - self.last_update_time["l2book"]
         if self.last_update_time["l2book"] > 0 and l2book_age > DATA_STALE_THRESHOLD_SECONDS:
@@ -741,6 +726,9 @@ class MarketFlowCollector:
             return
 
         try:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from database.models import MarketOrderbookSnapshots
+
             levels = data.get("levels", [[], []])
             bids = levels[0] if len(levels) > 0 else []
             asks = levels[1] if len(levels) > 1 else []
@@ -749,59 +737,34 @@ class MarketFlowCollector:
             best_ask = Decimal(asks[0]["px"]) if asks else None
             spread = (best_ask - best_bid) if (best_bid and best_ask) else None
 
-            # Calculate depth for top 5 and 10 levels
             bid_depth_5 = sum(Decimal(b["sz"]) for b in bids[:5])
             ask_depth_5 = sum(Decimal(a["sz"]) for a in asks[:5])
             bid_depth_10 = sum(Decimal(b["sz"]) for b in bids[:10])
             ask_depth_10 = sum(Decimal(a["sz"]) for a in asks[:10])
 
-            # Count orders
             bid_orders = sum(b.get("n", 1) for b in bids)
             ask_orders = sum(a.get("n", 1) for a in asks)
 
-            # Upsert: check if record exists, update or insert
-            existing = db.query(MarketOrderbookSnapshots).filter(
-                MarketOrderbookSnapshots.exchange == "hyperliquid",
-                MarketOrderbookSnapshots.symbol == symbol,
-                MarketOrderbookSnapshots.timestamp == timestamp_ms
-            ).first()
-
-            if existing:
-                existing.best_bid = best_bid
-                existing.best_ask = best_ask
-                existing.spread = spread
-                existing.bid_depth_5 = bid_depth_5
-                existing.ask_depth_5 = ask_depth_5
-                existing.bid_depth_10 = bid_depth_10
-                existing.ask_depth_10 = ask_depth_10
-                existing.bid_orders_count = bid_orders
-                existing.ask_orders_count = ask_orders
-                existing.raw_levels = json.dumps(levels)
-            else:
-                record = MarketOrderbookSnapshots(
-                    exchange="hyperliquid",
-                    symbol=symbol,
-                    timestamp=timestamp_ms,
-                    best_bid=best_bid,
-                    best_ask=best_ask,
-                    spread=spread,
-                    bid_depth_5=bid_depth_5,
-                    ask_depth_5=ask_depth_5,
-                    bid_depth_10=bid_depth_10,
-                    ask_depth_10=ask_depth_10,
-                    bid_orders_count=bid_orders,
-                    ask_orders_count=ask_orders,
-                    raw_levels=json.dumps(levels),
-                )
-                db.add(record)
+            values = dict(
+                exchange="hyperliquid", symbol=symbol, timestamp=timestamp_ms,
+                best_bid=best_bid, best_ask=best_ask, spread=spread,
+                bid_depth_5=bid_depth_5, ask_depth_5=ask_depth_5,
+                bid_depth_10=bid_depth_10, ask_depth_10=ask_depth_10,
+                bid_orders_count=bid_orders, ask_orders_count=ask_orders,
+                raw_levels=json.dumps(levels),
+            )
+            update_cols = {k: v for k, v in values.items() if k not in ("exchange", "symbol", "timestamp")}
+            stmt = pg_insert(MarketOrderbookSnapshots).values(**values).on_conflict_do_update(
+                index_elements=["exchange", "symbol", "timestamp"],
+                set_=update_cols,
+            )
+            db.execute(stmt)
 
         except Exception as e:
             logger.error(f"Error flushing orderbook for {symbol}: {e}")
 
     def _flush_asset_metrics(self, db, symbol: str, timestamp_ms: int):
-        """Flush asset metrics for a symbol"""
-        from database.models import MarketAssetMetrics
-
+        """Flush asset metrics for a symbol using native PostgreSQL upsert"""
         # Skip if data is stale (WebSocket disconnected)
         asset_ctx_age = time.time() - self.last_update_time["asset_ctx"]
         if self.last_update_time["asset_ctx"] > 0 and asset_ctx_age > DATA_STALE_THRESHOLD_SECONDS:
@@ -813,37 +776,26 @@ class MarketFlowCollector:
             return
 
         try:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from database.models import MarketAssetMetrics
+
             ctx = data.get("ctx", {})
-
-            # Upsert: check if record exists, update or insert
-            existing = db.query(MarketAssetMetrics).filter(
-                MarketAssetMetrics.exchange == "hyperliquid",
-                MarketAssetMetrics.symbol == symbol,
-                MarketAssetMetrics.timestamp == timestamp_ms
-            ).first()
-
-            if existing:
-                existing.open_interest = Decimal(ctx["openInterest"]) if ctx.get("openInterest") else None
-                existing.funding_rate = Decimal(ctx["funding"]) if ctx.get("funding") else None
-                existing.mark_price = Decimal(ctx["markPx"]) if ctx.get("markPx") else None
-                existing.oracle_price = Decimal(ctx["oraclePx"]) if ctx.get("oraclePx") else None
-                existing.mid_price = Decimal(ctx["midPx"]) if ctx.get("midPx") else None
-                existing.premium = Decimal(ctx["premium"]) if ctx.get("premium") else None
-                existing.day_notional_volume = Decimal(ctx["dayNtlVlm"]) if ctx.get("dayNtlVlm") else None
-            else:
-                record = MarketAssetMetrics(
-                    exchange="hyperliquid",
-                    symbol=symbol,
-                    timestamp=timestamp_ms,
-                    open_interest=Decimal(ctx["openInterest"]) if ctx.get("openInterest") else None,
-                    funding_rate=Decimal(ctx["funding"]) if ctx.get("funding") else None,
-                    mark_price=Decimal(ctx["markPx"]) if ctx.get("markPx") else None,
-                    oracle_price=Decimal(ctx["oraclePx"]) if ctx.get("oraclePx") else None,
-                    mid_price=Decimal(ctx["midPx"]) if ctx.get("midPx") else None,
-                    premium=Decimal(ctx["premium"]) if ctx.get("premium") else None,
-                    day_notional_volume=Decimal(ctx["dayNtlVlm"]) if ctx.get("dayNtlVlm") else None,
-                )
-                db.add(record)
+            values = dict(
+                exchange="hyperliquid", symbol=symbol, timestamp=timestamp_ms,
+                open_interest=Decimal(ctx["openInterest"]) if ctx.get("openInterest") else None,
+                funding_rate=Decimal(ctx["funding"]) if ctx.get("funding") else None,
+                mark_price=Decimal(ctx["markPx"]) if ctx.get("markPx") else None,
+                oracle_price=Decimal(ctx["oraclePx"]) if ctx.get("oraclePx") else None,
+                mid_price=Decimal(ctx["midPx"]) if ctx.get("midPx") else None,
+                premium=Decimal(ctx["premium"]) if ctx.get("premium") else None,
+                day_notional_volume=Decimal(ctx["dayNtlVlm"]) if ctx.get("dayNtlVlm") else None,
+            )
+            update_cols = {k: v for k, v in values.items() if k not in ("exchange", "symbol", "timestamp")}
+            stmt = pg_insert(MarketAssetMetrics).values(**values).on_conflict_do_update(
+                index_elements=["exchange", "symbol", "timestamp"],
+                set_=update_cols,
+            )
+            db.execute(stmt)
 
         except Exception as e:
             logger.error(f"Error flushing asset metrics for {symbol}: {e}")
