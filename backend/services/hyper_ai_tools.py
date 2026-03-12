@@ -622,7 +622,7 @@ HYPER_AI_TOOLS = [
         "type": "function",
         "function": {
             "name": "query_factors",
-            "description": "Query factor library and effectiveness data. Without symbol: returns factor list. With symbol: returns factor values and effectiveness ranking. Response includes decay_half_life_hours: positive=half-life in hours (short-term factor, IC decays), -1=persistent (IC strengthens over time, trend/swing factor), null=insufficient data.",
+            "description": "Query factor library and effectiveness data. Without symbol: returns factor list. With symbol: returns factor values and effectiveness ranking. Fields: decay_half_life_hours (spatial dimension): positive=half-life in hours (IC decays across forward periods), -1=persistent (IC holds across periods). ic_7d: average IC over recent 7 days. ic_trend (temporal dimension): ic_7d / ic_30d ratio, >1 = factor strengthening recently, <1 = weakening, helps detect if factor is losing effectiveness over time.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -2468,12 +2468,32 @@ def execute_query_factors(
                 ORDER BY factor_name, calc_date DESC
             """), {"sym": symbol, "fp": forward_period, "ex": exchange}).fetchall()
 
-            items = [
-                {"factor_name": r[0], "category": r[1], "ic_mean": float(r[2]),
-                 "icir": float(r[3]), "win_rate": float(r[4]), "sample_count": r[5],
-                 "decay_half_life_hours": int(r[6]) if r[6] is not None else None}
-                for r in eff_rows
-            ]
+            # IC 7-day trend
+            from datetime import date as _date, timedelta as _td
+            cutoff_7d = _date.today() - _td(days=7)
+            ic_7d_rows = db.execute(text("""
+                SELECT factor_name, AVG(ic_mean) as ic_7d
+                FROM factor_effectiveness
+                WHERE symbol = :sym AND period = '1h' AND forward_period = :fp
+                    AND exchange = :ex AND calc_date >= :cutoff
+                GROUP BY factor_name
+            """), {"sym": symbol, "fp": forward_period, "ex": exchange, "cutoff": cutoff_7d}).fetchall()
+            ic_7d_map = {r[0]: round(float(r[1]), 6) if r[1] is not None else None for r in ic_7d_rows}
+
+            items = []
+            for r in eff_rows:
+                fname = r[0]
+                ic_30d = float(r[2])
+                ic_7d = ic_7d_map.get(fname)
+                ic_trend = None
+                if ic_7d is not None and abs(ic_30d) > 1e-6:
+                    ic_trend = round(ic_7d / ic_30d, 2)
+                items.append({
+                    "factor_name": fname, "category": r[1], "ic_mean": ic_30d,
+                    "icir": float(r[3]), "win_rate": float(r[4]), "sample_count": r[5],
+                    "decay_half_life_hours": int(r[6]) if r[6] is not None else None,
+                    "ic_7d": ic_7d, "ic_trend": ic_trend,
+                })
             items.sort(key=lambda x: abs(x.get("icir") or 0), reverse=True)
 
             return json.dumps({

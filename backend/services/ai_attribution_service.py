@@ -218,6 +218,39 @@ def _define_tools():
                     "required": ["title", "current_behavior", "suggested_change", "reason"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_factor_attribution",
+                "description": "Analyze trading performance grouped by factor signal triggers. Shows which factors led to profitable vs losing trades.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "account_id": {"type": "integer", "description": "Account ID (0 for all)"},
+                        "exchange": {"type": "string", "enum": ["hyperliquid", "binance"], "description": "Exchange. REQUIRED."},
+                        "environment": {"type": "string", "enum": ["testnet", "mainnet"], "description": "Environment. REQUIRED."},
+                        "days": {"type": "integer", "description": "Analysis period in days", "default": 30}
+                    },
+                    "required": ["account_id", "exchange"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "query_factors",
+                "description": "Query factor library and effectiveness data. Returns factor values, IC, ICIR, win rate, decay, and IC trend (ic_7d/ic_trend). ic_trend > 1 = factor strengthening recently, < 1 = weakening.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "exchange": {"type": "string", "enum": ["hyperliquid", "binance"], "description": "Exchange (required)"},
+                        "symbol": {"type": "string", "description": "Symbol for effectiveness ranking"},
+                        "forward_period": {"type": "string", "enum": ["1h", "4h", "12h", "24h"], "description": "Forward period (default: 4h)"}
+                    },
+                    "required": ["exchange"]
+                }
+            }
         }
     ]
 
@@ -243,6 +276,11 @@ def _execute_tool(db: Session, tool_name: str, args: Dict) -> str:
             return _tool_get_trade_decision_chain(db, args)
         elif tool_name == "suggest_prompt_modification":
             return _tool_suggest_prompt_modification(args)
+        elif tool_name == "get_factor_attribution":
+            return _tool_get_factor_attribution(db, args)
+        elif tool_name == "query_factors":
+            from services.hyper_ai_tools import execute_query_factors
+            return execute_query_factors(db, args.get("exchange", "hyperliquid"), args.get("symbol"), forward_period=args.get("forward_period", "4h"))
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
     except Exception as e:
@@ -619,6 +657,79 @@ def _tool_list_ai_accounts(db: Session) -> str:
         })
 
     return json.dumps({"accounts": account_list, "count": len(account_list)})
+
+
+def _tool_get_factor_attribution(db: Session, args: Dict) -> str:
+    """Analyze trading performance grouped by factor signal triggers."""
+    from database.models import SignalTriggerLog
+
+    account_id = args.get("account_id", 0)
+    exchange = args.get("exchange")
+    environment = args.get("environment")
+    days = args.get("days", 30)
+
+    if not exchange:
+        return json.dumps({"error": "exchange is required"})
+    if not environment:
+        return json.dumps({"error": "environment is required"})
+
+    start_date = datetime.now() - timedelta(days=days)
+
+    query = db.query(AIDecisionLog).filter(
+        AIDecisionLog.operation.in_(["buy", "sell", "close"]),
+        AIDecisionLog.executed == "true",
+        AIDecisionLog.realized_pnl.isnot(None),
+        AIDecisionLog.realized_pnl != 0,
+        AIDecisionLog.created_at >= start_date,
+        AIDecisionLog.exchange == exchange,
+        AIDecisionLog.hyperliquid_environment == environment,
+        AIDecisionLog.signal_trigger_id.isnot(None)
+    )
+    if account_id > 0:
+        query = query.filter(AIDecisionLog.account_id == account_id)
+
+    decisions = query.all()
+    if not decisions:
+        return json.dumps({"message": "No factor-triggered trades found"})
+
+    fee_map = _get_fees_for_decisions(decisions)
+
+    trigger_ids = set(d.signal_trigger_id for d in decisions)
+    triggers = db.query(SignalTriggerLog).filter(
+        SignalTriggerLog.id.in_(list(trigger_ids)),
+        SignalTriggerLog.trigger_type.like("factor:%")
+    ).all()
+    trigger_map = {t.id: t for t in triggers}
+
+    by_factor: Dict[str, Dict] = {}
+    for d in decisions:
+        trig = trigger_map.get(d.signal_trigger_id)
+        if not trig:
+            continue
+        fname = trig.trigger_type.split(":", 1)[1] if ":" in trig.trigger_type else trig.trigger_type
+        if fname not in by_factor:
+            by_factor[fname] = {"count": 0, "wins": 0, "pnl": 0, "fees": 0}
+        by_factor[fname]["count"] += 1
+        pnl = float(d.realized_pnl or 0)
+        by_factor[fname]["pnl"] += pnl
+        by_factor[fname]["fees"] += fee_map.get(d.id, 0.0)
+        if pnl > 0:
+            by_factor[fname]["wins"] += 1
+
+    items = []
+    for fname, stats in by_factor.items():
+        items.append({
+            "factor_name": fname,
+            "trade_count": stats["count"],
+            "wins": stats["wins"],
+            "win_rate": f"{stats['wins']/stats['count']*100:.1f}%" if stats["count"] > 0 else "N/A",
+            "total_pnl": round(stats["pnl"], 2),
+            "total_fees": round(stats["fees"], 2),
+            "net_pnl": round(stats["pnl"] - stats["fees"], 2),
+        })
+
+    items.sort(key=lambda x: x["trade_count"], reverse=True)
+    return json.dumps({"period_days": days, "factors": items})
 
 
 def extract_diagnosis_results(content: str) -> List[Dict]:

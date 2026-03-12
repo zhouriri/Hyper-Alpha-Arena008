@@ -528,6 +528,7 @@ class DataProvider:
                 "SELECT ic_mean, icir, win_rate, decay_half_life "
                 "FROM factor_effectiveness "
                 "WHERE factor_name = :fn AND symbol = :sym AND exchange = :ex "
+                "AND period = '1h' AND forward_period = '4h' "
                 "ORDER BY created_at DESC LIMIT 1"
             ), {"fn": factor_name, "sym": symbol, "ex": self.exchange}).fetchone()
 
@@ -557,6 +558,7 @@ class DataProvider:
                 "SELECT DISTINCT ON (factor_name) factor_name, ic_mean, icir, win_rate, decay_half_life "
                 "FROM factor_effectiveness "
                 "WHERE symbol = :sym AND exchange = :ex AND icir IS NOT NULL "
+                "AND period = '1h' AND forward_period = '4h' "
                 "ORDER BY factor_name, created_at DESC"
             ), {"sym": symbol, "ex": self.exchange}).fetchall()
 

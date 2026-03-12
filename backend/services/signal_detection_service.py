@@ -667,6 +667,7 @@ class SignalDetectionService:
                     "SELECT ic_mean, icir, win_rate, decay_half_life "
                     "FROM factor_effectiveness "
                     "WHERE factor_name = :fn AND symbol = :sym AND exchange = :ex "
+                    "AND period = '1h' AND forward_period = '4h' "
                     "ORDER BY created_at DESC LIMIT 1"
                 ), {"fn": factor_name, "sym": symbol, "ex": exchange}).fetchone()
 
@@ -926,6 +927,9 @@ class SignalDetectionService:
                         base["current_value"] = s.get("current_value")
                         base["threshold"] = s.get("threshold")
                         base["operator"] = s.get("operator")
+                    # Persist factor effectiveness if present
+                    if "factor_effectiveness" in s:
+                        base["factor_effectiveness"] = s["factor_effectiveness"]
                     return base
 
                 # Build trigger value data

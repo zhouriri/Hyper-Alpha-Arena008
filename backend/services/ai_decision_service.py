@@ -2673,6 +2673,7 @@ def _build_factor_context(
                     "SELECT ic_mean, icir, win_rate, decay_half_life "
                     "FROM factor_effectiveness "
                     "WHERE factor_name = :fn AND symbol = :sym AND exchange = :ex "
+                    "AND period = '1h' AND forward_period = '4h' "
                     "ORDER BY created_at DESC LIMIT 1"
                 ), {"fn": factor_name, "sym": symbol, "ex": exchange}).fetchone()
 

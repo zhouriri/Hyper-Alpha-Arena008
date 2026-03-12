@@ -161,7 +161,7 @@ Factor variables provide real-time factor values with effectiveness metrics (IC,
 
 **Output Format:**
 ```
-name=RSI21(id=5) | expr=RSI(close, 21) | desc=RSI with 21-period lookback | value=0.0234 | IC=0.0512 | ICIR=1.35 | WinRate=52.0% | Persistent
+name=RSI21(id=5) | expr=RSI(close, 21) | desc=RSI with 21-period lookback | value=0.0234 | IC=0.0512 | ICIR=1.35 | WinRate=52.0% | IC_7d=0.0621 | IC_Trend=1.21x | Persistent
 ```
 
 **Common Built-in Factors:** RSI14, RSI21, MOM5, MOM10, SKEW20, KURT20, VOL_RATIO, REALIZED_VOL10, REALIZED_VOL30, HIGH_LOW_RANGE, ILLIQ20

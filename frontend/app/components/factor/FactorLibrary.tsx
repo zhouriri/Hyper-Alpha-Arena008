@@ -744,6 +744,16 @@ export default function FactorLibrary() {
                     <TooltipContent side="top" className="max-w-[240px]"><p className="text-xs">{t('factors.decayTooltip')}</p></TooltipContent>
                   </Tooltip>
                 </TableHead>
+                <TableHead className="text-right">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex items-center gap-1 cursor-help">
+                        {t('factors.icTrend')} <Info className="h-3 w-3" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[280px]"><p className="text-xs">{t('factors.icTrendTooltip')}</p></TooltipContent>
+                  </Tooltip>
+                </TableHead>
                 <TableHead className="text-right">{t('factors.samples')}</TableHead>
                 <TableHead className="w-16"></TableHead>
               </TableRow>
@@ -796,6 +806,13 @@ export default function FactorLibrary() {
                       row.decay_half_life === -1
                         ? <span className="text-blue-400 text-xs">{t('factors.persistent')}</span>
                         : <span className={`font-mono ${row.decay_half_life <= 4 ? 'text-red-400' : row.decay_half_life <= 12 ? 'text-yellow-500' : 'text-green-500'}`}>{row.decay_half_life}h</span>
+                    ) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="text-right text-sm">
+                    {row.ic_trend != null ? (
+                      <span className={`font-mono ${row.ic_trend >= 1.2 ? 'text-green-500' : row.ic_trend >= 0.8 ? 'text-yellow-500' : 'text-red-400'}`}>
+                        {row.ic_trend.toFixed(2)}x
+                      </span>
                     ) : <span className="text-muted-foreground">—</span>}
                   </TableCell>
                   <TableCell className="text-right text-sm">{row.sample_count ?? '—'}</TableCell>

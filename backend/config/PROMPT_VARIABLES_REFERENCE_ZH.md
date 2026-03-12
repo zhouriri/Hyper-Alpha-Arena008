@@ -396,7 +396,7 @@ Hourly Context:
 每个变量解析为包含因子元数据、实时值和有效性的文本：
 
 ```
-name=RSI21(id=5) | expr=RSI(close, 21) | desc=RSI 21周期 | value=0.0234 | IC=0.0512 | ICIR=1.35 | WinRate=52.0% | Persistent
+name=RSI21(id=5) | expr=RSI(close, 21) | desc=RSI 21周期 | value=0.0234 | IC=0.0512 | ICIR=1.35 | WinRate=52.0% | IC_7d=0.0621 | IC_Trend=1.21x | Persistent
 ```
 
 - **name(id)**: 因子名称和数据库ID

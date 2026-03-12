@@ -151,6 +151,7 @@ export default function AttributionAnalysis() {
   const [byStrategy, setByStrategy] = useState<DimensionResponse | null>(null)
   const [byTrigger, setByTrigger] = useState<DimensionResponse | null>(null)
   const [byOperation, setByOperation] = useState<DimensionResponse | null>(null)
+  const [byFactor, setByFactor] = useState<DimensionResponse | null>(null)
   // Program analytics states
   const [progBySymbol, setProgBySymbol] = useState<DimensionResponse | null>(null)
   const [progByProgram, setProgByProgram] = useState<DimensionResponse | null>(null)
@@ -242,7 +243,7 @@ export default function AttributionAnalysis() {
     try {
       const params = buildParams()
       const [
-        summaryData, symbolData, strategyData, triggerData, operationData,
+        summaryData, symbolData, strategyData, triggerData, operationData, factorData,
         progSymbolData, progProgramData, progTriggerData, progOperationData
       ] = await Promise.all([
         fetchSummary(params),
@@ -250,6 +251,7 @@ export default function AttributionAnalysis() {
         fetchByDimension('strategy', params),
         fetchByDimension('trigger-type', params),
         fetchByDimension('operation', params),
+        fetchByDimension('factor', params),
         fetchProgramByDimension('symbol', params),
         fetchProgramByDimension('program', params),
         fetchProgramByDimension('trigger-type', params),
@@ -260,6 +262,7 @@ export default function AttributionAnalysis() {
       setByStrategy(strategyData)
       setByTrigger(triggerData)
       setByOperation(operationData)
+      setByFactor(factorData)
       setProgBySymbol(progSymbolData)
       setProgByProgram(progProgramData)
       setProgByTrigger(progTriggerData)
@@ -574,6 +577,53 @@ export default function AttributionAnalysis() {
                 </table>
               </CardContent>
             </Card>
+
+            {/* By Factor */}
+            {byFactor?.items && byFactor.items.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    {t('attribution.byFactor', 'By Factor')}
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="w-4 h-4 text-muted-foreground hover:text-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs p-3">
+                          <p className="text-sm">{t('attribution.byFactorTooltip')}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="text-left p-2 font-medium">Factor</th>
+                        <th className="text-right p-2 font-medium">Gross PnL</th>
+                        <th className="text-right p-2 font-medium">Fees</th>
+                        <th className="text-right p-2 font-medium">Net PnL</th>
+                        <th className="text-right p-2 font-medium">Win Rate</th>
+                        <th className="text-right p-2 font-medium">Trades</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {byFactor.items.map((item: DimensionItem & { factor_name?: string }) => (
+                        <tr key={item.factor_name} className="border-b last:border-0">
+                          <td className="p-2 font-medium font-mono">{item.factor_name}</td>
+                          <td className={`p-2 text-right ${item.metrics.total_pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>${item.metrics.total_pnl.toFixed(2)}</td>
+                          <td className="p-2 text-right text-orange-500">${item.metrics.total_fee.toFixed(2)}</td>
+                          <td className={`p-2 text-right ${item.metrics.net_pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>${item.metrics.net_pnl.toFixed(2)}</td>
+                          <td className="p-2 text-right">{item.metrics.win_rate}</td>
+                          <td className="p-2 text-right">{item.metrics.trade_count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            )}
                 </div>
               </div>
 

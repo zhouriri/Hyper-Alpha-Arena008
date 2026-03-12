@@ -647,6 +647,60 @@ def get_analytics_by_trigger_type(
     return {"items": items}
 
 
+@router.get("/by-factor")
+def get_analytics_by_factor(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    environment: Optional[str] = Query("all"),
+    account_id: Optional[int] = Query(None),
+    exchange: Optional[str] = Query("all"),
+    db: Session = Depends(get_db),
+):
+    """Get analytics grouped by factor signal triggers."""
+    from database.models import SignalTriggerLog
+
+    query = build_base_query(db, start_date, end_date, environment, account_id, exchange)
+    decisions = query.all()
+    fee_map = get_fees_for_decisions(decisions)
+
+    # Collect decision IDs that have signal_trigger_id
+    trigger_ids = set()
+    decision_by_trigger: Dict[int, List] = {}
+    for d in decisions:
+        if d.signal_trigger_id:
+            trigger_ids.add(d.signal_trigger_id)
+            decision_by_trigger.setdefault(d.signal_trigger_id, []).append(d)
+
+    if not trigger_ids:
+        return {"items": []}
+
+    # Batch load signal trigger logs for factor triggers
+    triggers = db.query(SignalTriggerLog).filter(
+        SignalTriggerLog.id.in_(list(trigger_ids)),
+        SignalTriggerLog.trigger_type.like("factor:%")
+    ).all()
+
+    # Group by factor name
+    by_factor: Dict[str, List[Dict]] = {}
+    for trig in triggers:
+        # Extract factor name from trigger_type "factor:RSI14"
+        factor_name = trig.trigger_type.split(":", 1)[1] if ":" in trig.trigger_type else trig.trigger_type
+        for d in decision_by_trigger.get(trig.id, []):
+            pnl = float(d.realized_pnl) if d.realized_pnl else 0
+            fee = fee_map.get(d.id, 0.0)
+            by_factor.setdefault(factor_name, []).append({"pnl": pnl, "fee": fee})
+
+    items = []
+    for factor_name, records in by_factor.items():
+        items.append({
+            "factor_name": factor_name,
+            "metrics": calculate_metrics(records),
+        })
+
+    items.sort(key=lambda x: x["metrics"]["trade_count"], reverse=True)
+    return {"items": items}
+
+
 # ============== AI Attribution Analysis Routes ==============
 
 from fastapi.responses import StreamingResponse

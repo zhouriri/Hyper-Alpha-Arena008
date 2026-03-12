@@ -396,7 +396,7 @@ Factor variables inject real-time factor values and effectiveness metrics into y
 Each variable resolves to a text block with factor metadata, real-time value, and effectiveness:
 
 ```
-name=RSI21(id=5) | expr=RSI(close, 21) | desc=RSI with 21-period lookback | value=0.0234 | IC=0.0512 | ICIR=1.35 | WinRate=52.0% | Persistent
+name=RSI21(id=5) | expr=RSI(close, 21) | desc=RSI with 21-period lookback | value=0.0234 | IC=0.0512 | ICIR=1.35 | WinRate=52.0% | IC_7d=0.0621 | IC_Trend=1.21x | Persistent
 ```
 
 - **name(id)**: Factor name and database ID

@@ -886,7 +886,9 @@ f = data.get_factor("BTC", "RSI21")
   "ic": 0.0512,                     # Information Coefficient (predictive power)
   "icir": 1.35,                     # IC Information Ratio (stability)
   "win_rate": 58.2,                 # Win rate percentage
-  "decay_half_life_hours": -1       # -1=Persistent, positive=half-life hours, None=insufficient data
+  "decay_half_life_hours": -1,      # -1=Persistent, positive=half-life hours, None=insufficient data
+  "ic_7d": 0.0621,                  # Recent 7-day average IC (None if insufficient data)
+  "ic_trend": 1.21                  # IC trend ratio: ic_7d / ic_30d. >1=strengthening, <1=weakening, None=insufficient data
 }
 ```
 
@@ -920,13 +922,15 @@ ranking = data.get_factor_ranking("BTC", top_n=5)
     "factor_name": "SKEW20", "id": 12,
     "expression": "SKEW(RET(close, 1), 20)",
     "description": "20-period return skewness",
-    "ic": -0.08, "icir": -2.1, "win_rate": 62.0, "decay_half_life_hours": -1
+    "ic": -0.08, "icir": -2.1, "win_rate": 62.0, "decay_half_life_hours": -1,
+    "ic_7d": -0.095, "ic_trend": 1.19
   },
   {
     "factor_name": "MOM10", "id": 8,
     "expression": "RET(close, 10)",
     "description": "10-period momentum (rate of change)",
-    "ic": 0.05, "icir": 1.5, "win_rate": 55.0, "decay_half_life_hours": 8
+    "ic": 0.05, "icir": 1.5, "win_rate": 55.0, "decay_half_life_hours": 8,
+    "ic_7d": 0.038, "ic_trend": 0.76
   },
   ...
 ]
