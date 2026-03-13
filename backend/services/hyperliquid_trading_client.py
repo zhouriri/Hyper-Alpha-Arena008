@@ -725,12 +725,14 @@ class HyperliquidTradingClient:
         self._validate_environment(db)
 
         try:
-            logger.info(f"Fetching user fills for wallet {self.wallet_address} on {self.environment}")
+            logger.info(f"Fetching user fills for wallet {self.query_address} on {self.environment}")
 
             # Use SDK Info to get all user fills
-            fills = self.sdk_info.user_fills(self.wallet_address)
+            # Must use query_address (master wallet) instead of wallet_address (agent key)
+            # because fills are associated with the master wallet on Hyperliquid
+            fills = self.sdk_info.user_fills(self.query_address)
 
-            logger.debug(f"Retrieved {len(fills)} fills for wallet {self.wallet_address}")
+            logger.debug(f"Retrieved {len(fills)} fills for wallet {self.query_address}")
 
             self._record_exchange_action(
                 action_type="fetch_user_fills",
@@ -776,8 +778,8 @@ class HyperliquidTradingClient:
         self._validate_environment(db)
 
         try:
-            logger.debug(f"Querying order {order_id} for wallet {self.wallet_address}")
-            result = self.sdk_info.query_order_by_oid(self.wallet_address, order_id)
+            logger.debug(f"Querying order {order_id} for wallet {self.query_address}")
+            result = self.sdk_info.query_order_by_oid(self.query_address, order_id)
             return result
         except Exception as e:
             logger.warning(f"Failed to query order {order_id}: {e}")
@@ -833,12 +835,13 @@ class HyperliquidTradingClient:
         self._validate_environment(db)
 
         try:
-            logger.info(f"Fetching historical orders for wallet {self.wallet_address} on {self.environment}")
+            logger.info(f"Fetching historical orders for wallet {self.query_address} on {self.environment}")
 
             # Use SDK Info to get historical orders (up to 2000 most recent)
-            orders = self.sdk_info.historical_orders(self.wallet_address)
+            # Must use query_address (master wallet) for agent_key mode
+            orders = self.sdk_info.historical_orders(self.query_address)
 
-            logger.debug(f"Retrieved {len(orders)} historical orders for wallet {self.wallet_address}")
+            logger.debug(f"Retrieved {len(orders)} historical orders for wallet {self.query_address}")
 
             self._record_exchange_action(
                 action_type="fetch_historical_orders",
@@ -1024,7 +1027,7 @@ class HyperliquidTradingClient:
             portfolio_pnl = 0.0
             portfolio_volume = 0.0
             try:
-                portfolio_data = self.sdk_info.portfolio(self.wallet_address)
+                portfolio_data = self.sdk_info.portfolio(self.query_address)
                 # Find allTime or perpAllTime data
                 for item in portfolio_data:
                     if item[0] == 'allTime':
@@ -1150,10 +1153,11 @@ class HyperliquidTradingClient:
         self._validate_environment(db)
 
         try:
-            logger.info(f"Fetching open orders for wallet {self.wallet_address} on {self.environment}")
+            logger.info(f"Fetching open orders for wallet {self.query_address} on {self.environment}")
 
             # Use SDK Info to get frontend open orders (includes trigger conditions, TP/SL info)
-            raw_orders = self.sdk_info.frontend_open_orders(self.wallet_address)
+            # Must use query_address (master wallet) for agent_key mode
+            raw_orders = self.sdk_info.frontend_open_orders(self.query_address)
 
             # Transform to simplified format for AI prompt
             orders = []
@@ -1683,12 +1687,13 @@ class HyperliquidTradingClient:
         self._validate_environment(db)
 
         try:
-            logger.info(f"Fetching raw open orders for wallet {self.wallet_address} on {self.environment}")
+            logger.info(f"Fetching raw open orders for wallet {self.query_address} on {self.environment}")
 
             # Use SDK Info to get open orders (frontend_open_orders includes trigger orders)
-            open_orders = self.sdk_info.frontend_open_orders(self.wallet_address)
+            # Must use query_address (master wallet) for agent_key mode
+            open_orders = self.sdk_info.frontend_open_orders(self.query_address)
 
-            logger.debug(f"Retrieved {len(open_orders)} open orders for wallet {self.wallet_address}")
+            logger.debug(f"Retrieved {len(open_orders)} open orders for wallet {self.query_address}")
 
             # Filter by symbol if specified
             if symbol:
@@ -2354,10 +2359,10 @@ class HyperliquidTradingClient:
             # Construct payload for userRateLimit query
             payload = {
                 "type": "userRateLimit",
-                "user": self.wallet_address
+                "user": self.query_address
             }
 
-            logger.info(f"Querying rate limit for {self.wallet_address} on {self.environment}")
+            logger.info(f"Querying rate limit for {self.query_address} on {self.environment}")
 
             # Call Hyperliquid Info API (disable proxy to avoid connection issues)
             proxies = {
