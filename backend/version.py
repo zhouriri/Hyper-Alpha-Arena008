@@ -2,10 +2,11 @@
 Hyper Alpha Arena Version Information
 """
 
-__version__ = "0.9.5"
-__version_info__ = (0, 9, 5)
+__version__ = "0.9.6"
+__version_info__ = (0, 9, 6)
 
 # Version history
+# 0.9.6 - Sliding window IC, fetch_url tool, Hyper AI 100 iterations, sidebar collapse
 # 0.9.5 - Fix Binance quota: only count buy/sell/close, error registry, loading tips
 # 0.9.4 - Factor Analysis dialog with IC charts, AI interpretation, flexible query_factors days param
 # 0.9.3 - Fix agent_key mode: use query_address (master wallet) for all SDK Info queries

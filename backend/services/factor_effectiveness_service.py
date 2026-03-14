@@ -1,16 +1,35 @@
 """
 Factor Effectiveness Service
 
-Computes IC, ICIR, win rate for each factor using full local K-line history.
-Uses vectorized extraction (no per-bar loops). Auto-backfills from exchange
-APIs when local data is insufficient.
+Computes IC (Information Coefficient) time series using sliding window approach.
+For each factor, slides a 30-day (720-bar) window over full K-line history,
+computing IC at each daily position. This produces a complete historical IC
+time series immediately — no need to wait for daily accumulation.
+
+Architecture:
+  - _compute_factor_windowed(): Core method. Slides 720-bar window with 24-bar step.
+    Each window produces one IC value via fast numpy rank correlation (_calc_ic_fast).
+    ICIR is computed ACROSS windows (trailing 30-day mean(IC)/std(IC)), which is
+    the standard quant definition. Supports force mode (full overwrite) for manual
+    compute and incremental mode (skip existing dates) for daily cron.
+  - _compute_symbol(): Computes ALL factors for one symbol. Reports per-factor progress.
+  - compute_single_factor(): Computes ONE factor across all symbols (Hyper AI tool).
+
+Performance history (2026-03):
+  v1: One-shot _calc_metrics with scipy.spearmanr + pandas rolling IC per window.
+      147K calls × 5ms = 15 minutes for full compute. Bottleneck was rolling IC
+      within each 720-bar window — redundant in sliding window mode where ICIR
+      should be computed across windows, not within.
+  v2 (current): _calc_ic_fast using pure numpy rank correlation per window (~0.05ms).
+      ICIR computed as trailing cross-window mean(IC)/std(IC). Full compute ~30-60s.
+      More standard quant approach AND 100x faster per call.
 
 Runs daily via CronTrigger at UTC 01:00, also callable on-demand.
 """
 
 import logging
 import time
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 from typing import List, Dict, Optional, Tuple
 
 import numpy as np
@@ -60,24 +79,32 @@ class FactorEffectivenessService:
     def get_progress(self) -> Dict:
         return dict(self._progress)
 
-    def compute_for_exchange(self, db: Session, exchange: str, period: str = "1h"):
-        """Compute effectiveness for all factors on one exchange. Public API."""
+    def compute_for_exchange(self, db: Session, exchange: str, period: str = "1h",
+                             force: bool = False):
+        """Compute effectiveness for all factors on one exchange.
+
+        Args:
+            force: If True, recompute ALL windows (overwrites existing data via
+                   ON CONFLICT DO UPDATE). Used by manual compute button.
+                   If False, skip existing calc_dates (daily cron incremental mode).
+        """
         symbols = self._get_symbols(db, exchange)
         if not symbols:
             self._progress = {"status": "idle"}
             return {"computed": 0, "exchange": exchange}
-        today = date.today()
         total = len(symbols)
         self._progress = {
             "status": "running", "phase": "effectiveness",
-            "completed": 0, "total": total, "current_symbol": "",
+            "symbol_completed": 0, "symbol_total": total,
+            "current_symbol": "", "current_factor": "",
+            "factor_completed": 0, "factor_total": 0,
         }
         count = 0
         for i, symbol in enumerate(symbols):
             self._progress["current_symbol"] = symbol
-            self._progress["completed"] = i
+            self._progress["symbol_completed"] = i
             try:
-                n = self._compute_symbol(db, exchange, symbol, period, today)
+                n = self._compute_symbol(db, exchange, symbol, period, force)
                 count += n
             except Exception as e:
                 logger.warning(f"[FactorEffectiveness] {exchange}/{symbol}: {e}")
@@ -85,6 +112,84 @@ class FactorEffectivenessService:
         self._progress = {"status": "idle"}
         print(f"[FactorEffectiveness] {exchange}: {count} records", flush=True)
         return {"computed": count, "exchange": exchange}
+
+    def compute_single_factor(self, db: Session, exchange: str, factor_name: str) -> dict:
+        """Public API: Compute one factor across all watchlist symbols.
+        Called by Hyper AI's compute_factor tool. Always force=True to ensure
+        latest algorithm is applied (overwrites old data via ON CONFLICT).
+        """
+        import pandas as pd
+        from database.models import CustomFactor
+        from services.factor_expression_engine import factor_expression_engine
+        from services.factor_data_provider import ensure_kline_coverage
+
+        builtin_def = next((f for f in FACTOR_REGISTRY if f["name"] == factor_name), None)
+        custom_factor = None
+        if not builtin_def:
+            custom_factor = db.query(CustomFactor).filter(
+                CustomFactor.name == factor_name, CustomFactor.is_active == True
+            ).first()
+            if not custom_factor:
+                return {"error": f"Factor '{factor_name}' not found"}
+
+        symbols = self._get_symbols(db, exchange)
+        if not symbols:
+            return {"error": f"No watchlist symbols for {exchange}"}
+
+        computed = 0
+        icir_values = []
+
+        for symbol in symbols:
+            klines = ensure_kline_coverage(db, exchange, symbol, "1h")
+            if not klines or len(klines) < 50:
+                continue
+
+            n_bars = len(klines)
+            closes = [float(k["close"]) for k in klines]
+
+            if custom_factor:
+                series, err = factor_expression_engine.execute(custom_factor.expression, klines)
+                if series is None:
+                    continue
+                fvals = [None if pd.isna(v) else float(v) for v in series.tolist()]
+                category = custom_factor.category or "custom"
+            else:
+                tech_keys = list({f["indicator_key"] for f in FACTOR_REGISTRY
+                                  if f["compute_type"] == "technical"})
+                indicators = calculate_indicators(klines, tech_keys)
+                fvals = self._extract_full_series(
+                    builtin_def, indicators, klines, n_bars, db, symbol, exchange)
+                if fvals is None:
+                    continue
+                category = builtin_def["category"]
+
+            n = self._compute_factor_windowed(
+                db, exchange, factor_name, category, symbol, "1h",
+                fvals, closes, klines, n_bars, force=True,
+            )
+            computed += n
+
+            latest_row = db.execute(text("""
+                SELECT icir FROM factor_effectiveness
+                WHERE exchange = :ex AND factor_name = :fn AND symbol = :sym
+                    AND period = '1h' AND forward_period = '4h'
+                ORDER BY calc_date DESC LIMIT 1
+            """), {"ex": exchange, "fn": factor_name, "sym": symbol}).fetchone()
+            if latest_row:
+                icir_values.append(float(latest_row[0]))
+
+        db.commit()
+
+        avg_icir = round(sum(icir_values) / len(icir_values), 4) if icir_values else 0
+        return {
+            "success": True,
+            "factor_name": factor_name, "exchange": exchange,
+            "symbols_computed": len(icir_values),
+            "total_records": computed,
+            "avg_icir_4h": avg_icir,
+            "note": f"Computed {factor_name} across {len(icir_values)} symbols. "
+                    f"Average 4h ICIR: {avg_icir}",
+        }
 
     # ── internal ──
 
@@ -102,11 +207,9 @@ class FactorEffectivenessService:
             ), {"ex": exchange}).fetchall()
             return [r[0] for r in rows]
 
-    def _compute_symbol(self, db, exchange, symbol, period, today) -> int:
-        """Vectorized factor effectiveness computation using full local kline history."""
+    def _compute_symbol(self, db, exchange, symbol, period, force=False) -> int:
+        """Compute factor effectiveness for one symbol using sliding window IC."""
         from services.factor_data_provider import ensure_kline_coverage
-
-        FORWARD_PERIODS = {"1h": 1, "4h": 4, "12h": 12, "24h": 24}
 
         klines = ensure_kline_coverage(db, exchange, symbol, period)
         if not klines or len(klines) < 50:
@@ -115,40 +218,40 @@ class FactorEffectivenessService:
         n_bars = len(klines)
         closes = [float(k["close"]) for k in klines]
 
-        # Batch compute technical indicators (vectorized, one pass)
-        tech_keys = list({f["indicator_key"] for f in FACTOR_REGISTRY if f["compute_type"] == "technical"})
+        tech_keys = list({f["indicator_key"] for f in FACTOR_REGISTRY
+                          if f["compute_type"] == "technical"})
         indicators = calculate_indicators(klines, tech_keys)
 
-        # Extract full series for each factor (vectorized, no per-bar loop)
         factor_series: Dict[str, List[Optional[float]]] = {}
         for fdef in FACTOR_REGISTRY:
-            series = self._extract_full_series(fdef, indicators, klines, n_bars, db, symbol, exchange)
+            series = self._extract_full_series(
+                fdef, indicators, klines, n_bars, db, symbol, exchange)
             if series is not None:
                 factor_series[fdef["name"]] = (series, fdef["category"])
 
-        # Compute IC for each factor × forward period, then fit decay
-        count = 0
-        for fname, (fvals, fcat) in factor_series.items():
-            ic_by_fp: Dict[str, float] = {}
-            metrics_by_fp: Dict[str, dict] = {}
-            for fp_label, fp_hours in FORWARD_PERIODS.items():
-                aligned_fv, aligned_rt = self._align_series(fvals, closes, fp_hours, n_bars)
-                if len(aligned_fv) < 10:
-                    continue
-                metrics = self._calc_metrics(aligned_fv, aligned_rt)
-                ic_by_fp[fp_label] = metrics["ic_mean"]
-                metrics_by_fp[fp_label] = metrics
-            # Compute decay half-life across forward periods
-            dhl = self._compute_decay_half_life(ic_by_fp, FORWARD_PERIODS)
-            for fp_label, metrics in metrics_by_fp.items():
-                metrics["decay_half_life"] = dhl
-                self._upsert(db, exchange, fname, fcat,
-                             symbol, period, fp_label, today, n_bars, metrics)
-                count += 1
+        # Count custom factors for accurate progress (builtin + custom = total)
+        from database.models import CustomFactor
+        try:
+            custom_count = db.query(CustomFactor).filter(
+                CustomFactor.is_active == True).count()
+        except Exception:
+            custom_count = 0
 
-        # Custom factors via expression engine (already vectorized)
+        count = 0
+        builtin_count = len(factor_series)
+        factor_total = builtin_count + custom_count
+        for fi, (fname, (fvals, fcat)) in enumerate(factor_series.items()):
+            self._progress["current_factor"] = fname
+            self._progress["factor_completed"] = fi
+            self._progress["factor_total"] = factor_total
+            count += self._compute_factor_windowed(
+                db, exchange, fname, fcat, symbol, period,
+                fvals, closes, klines, n_bars, force=force,
+            )
+
         count += self._compute_custom_effectiveness(
-            db, exchange, symbol, period, klines, closes, n_bars, today,
+            db, exchange, symbol, period, klines, closes, n_bars,
+            force=force, factor_offset=builtin_count, factor_total=factor_total,
         )
         return count
 
@@ -409,41 +512,169 @@ class FactorEffectivenessService:
 
         return None
 
-    def _compute_custom_effectiveness(self, db, exchange, symbol, period, klines, closes, n_bars, today):
-        """Compute IC/ICIR/win_rate for active custom factors."""
+    def _compute_factor_windowed(self, db, exchange, fname, fcat, symbol, period,
+                                  fvals, closes, klines, n_bars, force=False) -> int:
+        """Core sliding window IC computation with cross-window ICIR.
+
+        Two-phase approach:
+          Phase 1: Slide 720-bar window, compute per-window IC via _calc_ic_fast().
+          Phase 2: Compute trailing ICIR across windows (standard quant ICIR definition:
+                   mean(IC_series) / std(IC_series) over trailing 30 windows).
+
+        Args:
+            force: True = recompute all windows (manual compute, algorithm change).
+                   False = skip existing calc_dates (daily cron incremental).
+                   ON CONFLICT DO UPDATE ensures force mode overwrites old data.
+
+        Performance: ~0.05ms per _calc_ic_fast call (pure numpy rank correlation)
+        vs ~5ms for old _calc_metrics (scipy + pandas rolling). See module docstring.
+        """
+        WINDOW_BARS = 720   # 30 days of 1h bars
+        SLIDE_BARS = 24     # slide by 1 day
+        FORWARD_PERIODS = {"1h": 1, "4h": 4, "12h": 12, "24h": 24}
+        ICIR_TRAILING = 30  # trailing window count for ICIR computation
+
+        if n_bars < WINDOW_BARS:
+            if n_bars < 50:
+                return 0
+            # Insufficient data for sliding window — single computation, no ICIR
+            calc_date = datetime.fromtimestamp(
+                klines[-1]["timestamp"], tz=timezone.utc).date()
+            count = 0
+            ic_by_fp = {}
+            for fp_label, fp_hours in FORWARD_PERIODS.items():
+                af, ar = self._align_series(fvals, closes, fp_hours, n_bars)
+                if len(af) < 10:
+                    continue
+                m = self._calc_ic_fast(af, ar)
+                ic_by_fp[fp_label] = m["ic"]
+                dhl = None  # not enough data for decay
+                self._upsert(db, exchange, fname, fcat, symbol, period,
+                             fp_label, calc_date, n_bars,
+                             {"ic_mean": m["ic"], "ic_std": 0.0, "icir": 0.0,
+                              "win_rate": m["win_rate"], "sample_count": m["sample_count"],
+                              "decay_half_life": dhl})
+                count += 1
+            return count
+
+        # Load existing data: used for incremental skip AND trailing ICIR base
+        existing_by_fp: Dict[str, list] = {fp: [] for fp in FORWARD_PERIODS}
+        existing_dates = set()
+        if not force:
+            rows = db.execute(text("""
+                SELECT forward_period, calc_date, ic_mean FROM factor_effectiveness
+                WHERE exchange = :ex AND factor_name = :fn
+                    AND symbol = :sym AND period = :p
+                ORDER BY calc_date
+            """), {"ex": exchange, "fn": fname, "sym": symbol, "p": period}).fetchall()
+            for r in rows:
+                existing_by_fp.setdefault(r[0], []).append((r[1], float(r[2])))
+                existing_dates.add(r[1])
+
+        # Phase 1: Compute per-window IC for each forward_period
+        # window_data[calc_date][fp_label] = {ic, win_rate, sample_count}
+        window_data: Dict[date, Dict[str, dict]] = {}
+        for end_idx in range(WINDOW_BARS, n_bars + 1, SLIDE_BARS):
+            start_idx = end_idx - WINDOW_BARS
+            calc_date = datetime.fromtimestamp(
+                klines[end_idx - 1]["timestamp"], tz=timezone.utc).date()
+
+            if not force and calc_date in existing_dates:
+                continue
+
+            w_fvals = fvals[start_idx:end_idx]
+            w_closes = closes[start_idx:end_idx]
+            w_n = end_idx - start_idx
+
+            fp_results = {}
+            for fp_label, fp_hours in FORWARD_PERIODS.items():
+                af, ar = self._align_series(w_fvals, w_closes, fp_hours, w_n)
+                if len(af) < 10:
+                    continue
+                fp_results[fp_label] = self._calc_ic_fast(af, ar)
+            if fp_results:
+                window_data[calc_date] = fp_results
+
+        if not window_data:
+            return 0
+
+        # Phase 2: Compute trailing ICIR and upsert
+        count = 0
+        for fp_label in FORWARD_PERIODS:
+            # Merge existing + new ICs in chronological order
+            existing_ics = existing_by_fp.get(fp_label, [])
+            new_entries = sorted(
+                [(d, window_data[d][fp_label])
+                 for d in window_data if fp_label in window_data[d]],
+                key=lambda x: x[0],
+            )
+            all_ics = [ic for _, ic in existing_ics] + [m["ic"] for _, m in new_entries]
+            all_dates = [d for d, _ in existing_ics] + [d for d, _ in new_entries]
+            # Sort combined by date
+            sorted_pairs = sorted(zip(all_dates, all_ics), key=lambda x: x[0])
+            ic_series = [ic for _, ic in sorted_pairs]
+            date_to_idx = {d: i for i, (d, _) in enumerate(sorted_pairs)}
+
+            for calc_date, m in new_entries:
+                idx = date_to_idx[calc_date]
+                start = max(0, idx - ICIR_TRAILING + 1)
+                trailing = ic_series[start:idx + 1]
+
+                if len(trailing) >= 3:
+                    ic_mean = float(np.mean(trailing))
+                    ic_std = float(np.std(trailing))
+                    icir = ic_mean / ic_std if ic_std > 1e-8 else 0.0
+                else:
+                    ic_mean = m["ic"]
+                    ic_std = 0.0
+                    icir = 0.0
+
+                # Decay half-life from this window's IC across forward periods
+                ic_by_fp = {fp: window_data[calc_date][fp]["ic"]
+                            for fp in window_data[calc_date]}
+                dhl = self._compute_decay_half_life(ic_by_fp, FORWARD_PERIODS)
+
+                self._upsert(db, exchange, fname, fcat, symbol, period,
+                             fp_label, calc_date, WINDOW_BARS, {
+                                 "ic_mean": round(m["ic"], 6),
+                                 "ic_std": round(ic_std, 6),
+                                 "icir": round(icir, 4),
+                                 "win_rate": round(m["win_rate"], 4),
+                                 "sample_count": m["sample_count"],
+                                 "decay_half_life": dhl,
+                             })
+                count += 1
+
+        return count
+
+    def _compute_custom_effectiveness(self, db, exchange, symbol, period,
+                                       klines, closes, n_bars, force=False,
+                                       factor_offset=0, factor_total=0):
+        """Compute IC for active custom factors using sliding window."""
         import pandas as pd
         from database.models import CustomFactor
         from services.factor_expression_engine import factor_expression_engine
 
-        forward_periods = {"1h": 1, "4h": 4, "12h": 12, "24h": 24}
-
         try:
-            custom_factors = db.query(CustomFactor).filter(CustomFactor.is_active == True).all()
+            custom_factors = db.query(CustomFactor).filter(
+                CustomFactor.is_active == True).all()
         except Exception:
             return 0
 
         count = 0
-        for cf in custom_factors:
+        for ci, cf in enumerate(custom_factors):
+            self._progress["current_factor"] = cf.name
+            self._progress["factor_completed"] = factor_offset + ci
+            self._progress["factor_total"] = factor_total
             try:
                 series, err = factor_expression_engine.execute(cf.expression, klines)
                 if series is None or len(series) != n_bars:
                     continue
                 fvals = [None if pd.isna(v) else float(v) for v in series.tolist()]
-                ic_by_fp: Dict[str, float] = {}
-                metrics_by_fp: Dict[str, dict] = {}
-                for fp_label, fp_hours in forward_periods.items():
-                    aligned_fv, aligned_rt = self._align_series(fvals, closes, fp_hours, n_bars)
-                    if len(aligned_fv) < 10:
-                        continue
-                    metrics = self._calc_metrics(aligned_fv, aligned_rt)
-                    ic_by_fp[fp_label] = metrics["ic_mean"]
-                    metrics_by_fp[fp_label] = metrics
-                dhl = self._compute_decay_half_life(ic_by_fp, forward_periods)
-                for fp_label, metrics in metrics_by_fp.items():
-                    metrics["decay_half_life"] = dhl
-                    self._upsert(db, exchange, cf.name, cf.category or "custom",
-                                 symbol, period, fp_label, today, n_bars, metrics)
-                    count += 1
+                count += self._compute_factor_windowed(
+                    db, exchange, cf.name, cf.category or "custom", symbol, period,
+                    fvals, closes, klines, n_bars, force=force,
+                )
             except Exception as e:
                 logger.warning(f"[FactorEffectiveness] custom '{cf.name}' err: {e}")
         return count
@@ -460,8 +691,54 @@ class FactorEffectivenessService:
             aligned_rt.append(ret)
         return aligned_fv, aligned_rt
 
+    def _calc_ic_fast(self, factor_vals, returns):
+        """Fast per-window IC computation using pure numpy rank correlation.
+
+        Why this exists (2026-03 optimization):
+          The old _calc_metrics() used scipy.spearmanr + pandas rolling IC to compute
+          both IC and ICIR within a single window. That approach was designed for
+          one-shot full-data mode (called ~700 times total). When we switched to
+          sliding window mode, it gets called ~147K times (89 factors × 2 symbols ×
+          207 windows × 4 forward_periods), taking ~15 minutes.
+
+          In sliding window mode, ICIR is properly computed ACROSS windows (trailing
+          mean/std of per-window ICs) — the standard quantitative finance definition.
+          So each window only needs a simple Spearman rank correlation (IC) + win_rate.
+
+          Pure numpy implementation avoids scipy/pandas import overhead and function
+          call overhead. Benchmark: ~0.05ms vs ~5ms per call = 100x speedup.
+          Total full computation: ~30-60s vs ~15 minutes.
+
+        Returns: {"ic": float, "win_rate": float, "sample_count": int}
+        """
+        n = len(factor_vals)
+        fv = np.array(factor_vals, dtype=float)
+        rt = np.array(returns, dtype=float)
+
+        # Spearman rank correlation via numpy argsort (avoids scipy overhead)
+        fv_rank = np.argsort(np.argsort(fv)).astype(float)
+        rt_rank = np.argsort(np.argsort(rt)).astype(float)
+        fv_rank -= fv_rank.mean()
+        rt_rank -= rt_rank.mean()
+        denom = np.sqrt((fv_rank ** 2).sum() * (rt_rank ** 2).sum())
+        ic = float((fv_rank * rt_rank).sum() / denom) if denom > 1e-10 else 0.0
+
+        signs_match = np.sign(fv) == np.sign(rt)
+        win_rate = float(signs_match.mean())
+
+        return {
+            "ic": round(ic, 6),
+            "win_rate": round(win_rate, 4),
+            "sample_count": n,
+        }
+
     def _calc_metrics(self, factor_vals, returns):
-        """Compute IC, ICIR, win_rate from aligned factor values and returns."""
+        """Legacy: Compute IC, ICIR, win_rate within a single data window.
+
+        Kept for backward compatibility but no longer called by sliding window code.
+        The sliding window pipeline uses _calc_ic_fast() per window + cross-window
+        ICIR computation instead. See _calc_ic_fast() docstring for rationale.
+        """
         from scipy.stats import spearmanr
         import pandas as pd
 

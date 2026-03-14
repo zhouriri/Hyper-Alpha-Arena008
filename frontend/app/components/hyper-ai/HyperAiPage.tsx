@@ -34,6 +34,8 @@ import {
   MessageSquare,
   ChevronDown,
   ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
   Loader2,
   Bot,
   Pencil,
@@ -580,6 +582,7 @@ export default function HyperAiPage() {
   const [providers, setProviders] = useState<LLMProvider[]>([])
   const [profile, setProfile] = useState<any>(null)
   const [nickname, setNickname] = useState<string>('')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showConfig, setShowConfig] = useState(true)
   const [showConfigModal, setShowConfigModal] = useState(false)
   const [showMemoryModal, setShowMemoryModal] = useState(false)
@@ -1034,11 +1037,20 @@ export default function HyperAiPage() {
   return (
     <div className="flex h-full">
       {/* Left: Conversation List */}
-      <div className="w-64 border-r flex flex-col">
-        <div className="p-3">
-          <Button onClick={handleNewConversation} className="w-full" size="sm">
+      <div className={`border-r flex flex-col transition-all duration-200 ${sidebarCollapsed ? 'w-0 overflow-hidden border-r-0' : 'w-64'}`}>
+        <div className="p-3 flex items-center gap-2">
+          <Button onClick={handleNewConversation} className="flex-1" size="sm">
             <Plus className="w-4 h-4 mr-2" />
             {t('hyperAi.newChat', 'New Chat')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="px-2 shrink-0"
+            onClick={() => setSidebarCollapsed(true)}
+            title={t('hyperAi.collapseSidebar', 'Collapse sidebar')}
+          >
+            <PanelLeftClose className="w-4 h-4" />
           </Button>
         </div>
         <ScrollArea className="flex-1">
@@ -1086,7 +1098,18 @@ export default function HyperAiPage() {
       </div>
 
       {/* Center: Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        {sidebarCollapsed && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute top-2 left-2 z-10 px-2"
+            onClick={() => setSidebarCollapsed(false)}
+            title={t('hyperAi.expandSidebar', 'Expand sidebar')}
+          >
+            <PanelLeftOpen className="w-4 h-4" />
+          </Button>
+        )}
         {messages.length === 0 ? (
           <WelcomeMessage
             nickname={nickname}

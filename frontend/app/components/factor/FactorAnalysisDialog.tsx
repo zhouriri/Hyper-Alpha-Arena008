@@ -15,7 +15,7 @@ import {
 } from 'recharts'
 
 const FORWARD_PERIODS = ['1h', '4h', '12h', '24h']
-const DAY_OPTIONS = [30, 60, 90]
+const DAY_OPTIONS = [30, 60, 90, 0]  // 0 = All
 
 interface Props {
   open: boolean
@@ -77,7 +77,7 @@ export default function FactorAnalysisDialog({
     if (!open || !factorName || !symbol) return
     setLoading(true)
     Promise.all([
-      apiRequest(`/factors/effectiveness/${factorName}/history?symbol=${symbol}&period=${period}&forward_period=${fp}&exchange=${exchange}&days=${days}`).then(r => r.json()).catch(() => ({ history: [] })),
+      apiRequest(`/factors/effectiveness/${factorName}/history?symbol=${symbol}&period=${period}&forward_period=${fp}&exchange=${exchange}&days=${days || 9999}`).then(r => r.json()).catch(() => ({ history: [] })),
       apiRequest(`/factors/effectiveness/${factorName}/by-window?symbol=${symbol}&period=${period}&exchange=${exchange}`).then(r => r.json()).catch(() => ({ windows: [] })),
     ]).then(([histData, winData]) => {
       setHistory(histData.history || [])
@@ -162,7 +162,7 @@ export default function FactorAnalysisDialog({
                 {DAY_OPTIONS.map(d => (
                   <Button key={d} variant={days === d ? 'default' : 'ghost'} size="sm"
                     className="h-6 px-2 text-xs" onClick={() => setDays(d)}>
-                    {d}d
+                    {d === 0 ? 'All' : `${d}d`}
                   </Button>
                 ))}
               </div>
@@ -178,6 +178,8 @@ export default function FactorAnalysisDialog({
                   <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => v.toFixed(3)} />
                   <RTooltip
                     contentStyle={{ background: '#1a1a2e', border: '1px solid #333', fontSize: 12 }}
+                    labelStyle={{ color: '#9ca3af' }}
+                    itemStyle={{ color: '#e5e7eb' }}
                     formatter={(v: number) => [v?.toFixed(4), 'IC']}
                   />
                   <ReferenceLine y={0.05} stroke="#22c55e" strokeDasharray="4 4" strokeOpacity={0.5} />
@@ -198,6 +200,8 @@ export default function FactorAnalysisDialog({
                   <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => v.toFixed(2)} />
                   <RTooltip
                     contentStyle={{ background: '#1a1a2e', border: '1px solid #333', fontSize: 12 }}
+                    labelStyle={{ color: '#9ca3af' }}
+                    itemStyle={{ color: '#e5e7eb' }}
                     formatter={(v: number) => [v?.toFixed(4), 'Cumulative IC']}
                   />
                   <ReferenceLine y={0} stroke="#555" />
@@ -217,6 +221,8 @@ export default function FactorAnalysisDialog({
                   <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => v.toFixed(3)} />
                   <RTooltip
                     contentStyle={{ background: '#1a1a2e', border: '1px solid #333', fontSize: 12 }}
+                    labelStyle={{ color: '#9ca3af' }}
+                    itemStyle={{ color: '#e5e7eb' }}
                     formatter={(v: number, name: string) => {
                       if (name === 'ic_mean') return [v?.toFixed(4), 'IC']
                       return [v, name]

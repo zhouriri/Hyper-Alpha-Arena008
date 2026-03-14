@@ -488,13 +488,24 @@ export default function FactorLibrary() {
                     <div className="w-full space-y-2">
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>{computeProgress.phase === 'values' ? t('factors.phaseValues') : t('factors.phaseEffectiveness')}</span>
-                        <span>{computeProgress.completed}/{computeProgress.total}</span>
+                        <span>{computeProgress.current_symbol} ({computeProgress.completed}/{computeProgress.total})</span>
                       </div>
                       <div className="w-full bg-muted rounded-full h-2">
                         <div className="bg-primary h-2 rounded-full transition-all duration-500"
                           style={{ width: `${computeProgress.total > 0 ? (computeProgress.completed / computeProgress.total) * 100 : 0}%` }} />
                       </div>
-                      <p className="text-xs text-center text-muted-foreground">{computeProgress.current_symbol}</p>
+                      {computeProgress.phase === 'effectiveness' && computeProgress.current_factor && (
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span className="font-mono">{computeProgress.current_factor}</span>
+                            <span>{computeProgress.factor_completed}/{computeProgress.factor_total}</span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-1.5">
+                            <div className="bg-primary/60 h-1.5 rounded-full transition-all duration-300"
+                              style={{ width: `${computeProgress.factor_total > 0 ? (computeProgress.factor_completed / computeProgress.factor_total) * 100 : 0}%` }} />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

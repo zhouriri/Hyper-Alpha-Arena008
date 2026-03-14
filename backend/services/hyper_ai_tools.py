@@ -2730,96 +2730,15 @@ def execute_edit_factor(
 
 
 def execute_compute_factor(db: Session, factor_name: str, exchange: str) -> str:
-    """Compute a single factor across all watchlist symbols using full local data."""
-    from services.factor_registry import FACTOR_REGISTRY
-    from services.factor_expression_engine import factor_expression_engine
-    from services.factor_data_provider import ensure_kline_coverage
+    """Compute a single factor across all watchlist symbols using sliding window IC.
+    Delegates to FactorEffectivenessService.compute_single_factor() — no duplicated logic.
+    """
     from services.factor_effectiveness_service import FactorEffectivenessService
-    from services.technical_indicators import calculate_indicators
-    from database.models import CustomFactor
-    import pandas as pd
-    import numpy as np
-    from datetime import date
 
     try:
-        builtin_def = next((f for f in FACTOR_REGISTRY if f["name"] == factor_name), None)
-        custom_factor = None
-        if not builtin_def:
-            custom_factor = db.query(CustomFactor).filter(
-                CustomFactor.name == factor_name, CustomFactor.is_active == True
-            ).first()
-            if not custom_factor:
-                return json.dumps({"error": f"Factor '{factor_name}' not found in builtin or custom factors"})
-
-        try:
-            if exchange == "binance":
-                from services.binance_symbol_service import get_selected_symbols
-            else:
-                from services.hyperliquid_symbol_service import get_selected_symbols
-            symbols = get_selected_symbols()
-        except Exception:
-            symbols = []
-
-        if not symbols:
-            return json.dumps({"error": f"No watchlist symbols for {exchange}"})
-
-        today = date.today()
-        forward_periods = {"1h": 1, "4h": 4, "12h": 12, "24h": 24}
         eff_svc = FactorEffectivenessService()
-        computed = 0
-        icir_values = []
-
-        for symbol in symbols:
-            klines = ensure_kline_coverage(db, exchange, symbol, "1h")
-            if not klines or len(klines) < 50:
-                continue
-
-            n_bars = len(klines)
-            closes = [float(k["close"]) for k in klines]
-
-            # Get factor series (vectorized)
-            if custom_factor:
-                series, err = factor_expression_engine.execute(custom_factor.expression, klines)
-                if series is None:
-                    continue
-                fvals = [None if pd.isna(v) else float(v) for v in series.tolist()]
-            else:
-                # Builtin: vectorized extraction
-                if builtin_def.get("compute_type") == "technical":
-                    tech_keys = [builtin_def["indicator_key"]]
-                    indicators = calculate_indicators(klines, tech_keys)
-                    fvals = eff_svc._extract_technical_series(builtin_def, indicators, klines, n_bars)
-                elif builtin_def.get("compute_type") == "derived":
-                    fvals = eff_svc._extract_derived_series(builtin_def, klines, n_bars)
-                else:
-                    continue  # microstructure not supported for single-factor compute
-                if fvals is None:
-                    continue
-
-            for fp_label, fp_hours in forward_periods.items():
-                aligned_fv, aligned_rt = eff_svc._align_series(fvals, closes, fp_hours, n_bars)
-                if len(aligned_fv) < 10:
-                    continue
-                metrics = eff_svc._calc_metrics(aligned_fv, aligned_rt)
-                category = custom_factor.category if custom_factor else builtin_def["category"]
-                eff_svc._upsert(db, exchange, factor_name, category,
-                                symbol, "1h", fp_label, today, n_bars, metrics)
-                computed += 1
-                if fp_label == "4h":
-                    icir_values.append(metrics["icir"])
-
-        db.commit()
-
-        avg_icir = round(sum(icir_values) / len(icir_values), 4) if icir_values else 0
-        return json.dumps({
-            "success": True,
-            "factor_name": factor_name, "exchange": exchange,
-            "symbols_computed": len(icir_values),
-            "total_records": computed,
-            "avg_icir_4h": avg_icir,
-            "note": f"Computed {factor_name} across {len(icir_values)} symbols ({n_bars} bars each). Average 4h ICIR: {avg_icir}"
-        }, indent=2)
-
+        result = eff_svc.compute_single_factor(db, exchange, factor_name)
+        return json.dumps(result, indent=2)
     except Exception as e:
         db.rollback()
         logger.error(f"[compute_factor] Error: {e}")

@@ -183,10 +183,10 @@ async def get_effectiveness_history(
     rows = db.execute(text("""
         SELECT calc_date, ic_mean, icir, win_rate, sample_count
         FROM factor_effectiveness
-        WHERE factor_name = :fn AND symbol = :sym AND period = :p
+        WHERE exchange = :ex AND factor_name = :fn AND symbol = :sym AND period = :p
             AND forward_period = :fp AND calc_date >= :cutoff
         ORDER BY calc_date
-    """), {"fn": factor_name, "sym": symbol, "p": period,
+    """), {"ex": exchange, "fn": factor_name, "sym": symbol, "p": period,
            "fp": forward_period, "cutoff": cutoff}).fetchall()
 
     return {
@@ -282,7 +282,8 @@ def _run_compute_background(exchange: str, period: str):
         val_result = factor_computation_service.compute_now(exchange, period)
         db = SessionLocal()
         try:
-            eff_result = factor_effectiveness_service.compute_for_exchange(db, exchange, period)
+            eff_result = factor_effectiveness_service.compute_for_exchange(
+                db, exchange, period, force=True)
         finally:
             db.close()
         _compute_result = {
@@ -321,8 +322,9 @@ async def compute_estimate(exchange: str = Query("hyperliquid"), db: Session = D
 
     total_bars = sum(coverage.values())
     avg_bars = total_bars // len(symbols) if symbols else 0
-    # Vectorized: ~2s per symbol for indicator computation + IC calculation
-    estimated_seconds = len(symbols) * 2
+    # Estimate: ~2s indicator computation + ~0.7s per factor per symbol (sliding window IC)
+    # Benchmark: 2 symbols × 89 factors = 134s actual → ~0.75s per factor-symbol pair
+    estimated_seconds = len(symbols) * (2 + factor_count * 0.7)
 
     return {
         "exchange": exchange,
@@ -332,7 +334,7 @@ async def compute_estimate(exchange: str = Query("hyperliquid"), db: Session = D
         "forward_periods": ["1h", "4h", "12h", "24h"],
         "avg_bars_per_symbol": avg_bars,
         "total_bars": total_bars,
-        "estimated_seconds": estimated_seconds,
+        "estimated_seconds": int(estimated_seconds),
     }
 
 
@@ -373,8 +375,11 @@ async def compute_progress():
             "status": "running",
             "phase": "effectiveness",
             "current_symbol": eff_prog.get("current_symbol", ""),
-            "completed": eff_prog.get("completed", 0),
-            "total": eff_prog.get("total", 0),
+            "completed": eff_prog.get("symbol_completed", 0),
+            "total": eff_prog.get("symbol_total", 0),
+            "current_factor": eff_prog.get("current_factor", ""),
+            "factor_completed": eff_prog.get("factor_completed", 0),
+            "factor_total": eff_prog.get("factor_total", 0),
         }
     if val_prog.get("status") == "running":
         return {
