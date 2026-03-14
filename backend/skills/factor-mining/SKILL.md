@@ -39,10 +39,15 @@ Based on user's interest, generate 2-3 factor hypotheses:
 - Common patterns: ratio (EMA7/EMA21-1), acceleration (ROC3-ROC10), normalized deviation ((close-SMA20)/STDDEV(close,20))
 - Cross-category combinations (momentum + volatility, trend + volume)
 
-**Approach B: Research-driven (use web_search)**
-- If user wants inspiration from academic research or quant blogs
-- Search for relevant factor ideas, then translate to expressions
-- Example searches: "cryptocurrency momentum factor", "volume-price divergence alpha"
+**Approach B: Research-driven (use web_search + fetch_url)**
+- If user wants inspiration from academic research, known factor libraries, or quant blogs
+- **Step 1: Search for sources** — prioritize academic and code repositories:
+  - For known factor sets (e.g., WorldQuant 101 Alphas): `site:github.com WorldQuant alpha101 formula` or `site:arxiv.org 101 Formulaic Alphas`
+  - For specific factor numbers: `site:github.com "Alpha#101" formula`
+  - For general quant research: `site:arxiv.org cryptocurrency momentum factor`
+- **Step 2: Fetch full content** — use `fetch_url` on the most promising URL to read the actual formula/paper
+- **Step 3: Translate to expression** — convert the retrieved formula into a factor expression compatible with our system
+- Do NOT repeatedly search with different keywords hoping snippets contain the answer
 
 **[CHECKPOINT]** Present hypotheses with rationale. Let user pick which to test.
 

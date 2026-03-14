@@ -742,6 +742,28 @@ EXTERNAL_TOOLS = [
                 "required": ["query"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": "Fetch the full content of a web page and convert it to clean Markdown text. Use AFTER web_search to retrieve detailed content from a specific URL found in search results. Supports HTML pages, blog posts, documentation, and GitHub files. For academic papers, fetch the abstract page rather than the PDF directly.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch content from"
+                    },
+                    "max_length": {
+                        "type": "integer",
+                        "description": "Maximum content length in characters (default 8000, max 15000)",
+                        "default": 8000
+                    }
+                },
+                "required": ["url"]
+            }
+        }
     }
 ]
 
@@ -2871,6 +2893,87 @@ def execute_web_search(db: Session, query: str, max_results: int = 5) -> str:
         return json.dumps({"error": f"Search failed: {err}"})
 
 
+def execute_fetch_url(url: str, max_length: int = 8000) -> str:
+    """Fetch URL content using Jina Reader API with trafilatura fallback."""
+    import requests as req
+
+    max_length = min(max(1000, max_length), 15000)
+
+    if not url or not url.startswith(("http://", "https://")):
+        return json.dumps({"error": "Invalid URL. Must start with http:// or https://"})
+
+    content = None
+    source = None
+
+    # Strategy 1: Jina Reader API (renders JS, returns clean Markdown)
+    try:
+        jina_url = f"https://r.jina.ai/{url}"
+        headers = {
+            "Accept": "text/plain",
+            "X-No-Cache": "true",
+        }
+        resp = req.get(jina_url, headers=headers, timeout=30)
+        if resp.status_code == 200 and len(resp.text.strip()) > 100:
+            content = resp.text.strip()
+            source = "jina_reader"
+    except Exception as e:
+        logger.warning(f"[fetch_url] Jina Reader failed for {url}: {e}")
+
+    # Strategy 2: Trafilatura local extraction (fallback)
+    if not content:
+        try:
+            import trafilatura
+            downloaded = trafilatura.fetch_url(url)
+            if downloaded:
+                extracted = trafilatura.extract(
+                    downloaded,
+                    output_format="txt",
+                    include_links=True,
+                    include_tables=True,
+                )
+                if extracted and len(extracted.strip()) > 50:
+                    content = extracted.strip()
+                    source = "trafilatura"
+        except Exception as e:
+            logger.warning(f"[fetch_url] Trafilatura failed for {url}: {e}")
+
+    # Strategy 3: Raw requests fallback (minimal extraction)
+    if not content:
+        try:
+            resp = req.get(url, timeout=20, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; HyperAI/1.0)"
+            })
+            if resp.status_code == 200:
+                text = resp.text
+                # Basic HTML tag stripping for raw fallback
+                import re
+                text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+                text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+                text = re.sub(r'<[^>]+>', ' ', text)
+                text = re.sub(r'\s+', ' ', text).strip()
+                if len(text) > 50:
+                    content = text
+                    source = "raw_requests"
+        except Exception as e:
+            logger.warning(f"[fetch_url] Raw fetch failed for {url}: {e}")
+
+    if not content:
+        return json.dumps({"error": f"Failed to fetch content from {url}. The page may be inaccessible or require authentication."})
+
+    # Truncate to max_length
+    truncated = len(content) > max_length
+    if truncated:
+        content = content[:max_length] + "\n\n[Content truncated...]"
+
+    return json.dumps({
+        "url": url,
+        "content": content,
+        "content_length": len(content),
+        "truncated": truncated,
+        "source": source,
+    })
+
+
 def execute_hyper_ai_tool(
     db: Session, tool_name: str, arguments: Dict[str, Any],
     user_id: int = 1, api_config: Optional[Dict[str, Any]] = None
@@ -3129,6 +3232,12 @@ def execute_hyper_ai_tool(
             return execute_web_search(
                 db, query=arguments.get("query", ""),
                 max_results=arguments.get("max_results", 5)
+            )
+
+        elif tool_name == "fetch_url":
+            return execute_fetch_url(
+                url=arguments.get("url", ""),
+                max_length=arguments.get("max_length", 8000)
             )
 
         # --- Delete tools ---

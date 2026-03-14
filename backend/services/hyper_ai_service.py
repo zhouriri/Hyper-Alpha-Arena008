@@ -58,7 +58,7 @@ from utils.encryption import decrypt_private_key
 logger = logging.getLogger(__name__)
 
 # Maximum tool call iterations to prevent infinite loops
-MAX_TOOL_ITERATIONS = 20
+MAX_TOOL_ITERATIONS = 100
 
 # Retry configuration
 API_MAX_RETRIES = 5
@@ -663,6 +663,13 @@ def stream_chat_response(
         while iteration < MAX_TOOL_ITERATIONS:
             iteration += 1
             is_last_round = (iteration == MAX_TOOL_ITERATIONS)
+
+            # On last round, inject a system message forcing the AI to summarize
+            if is_last_round:
+                messages.append({
+                    "role": "user",
+                    "content": "[SYSTEM] You have reached the maximum tool call limit. You MUST now provide your final response to the user. Summarize all findings from your tool calls and answer the user's question. Do NOT attempt any more tool calls."
+                })
 
             # Use unified payload builder (see build_llm_payload in ai_decision_service)
             if api_format == "anthropic":
