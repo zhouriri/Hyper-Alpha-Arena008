@@ -649,50 +649,40 @@ async def _process_discord_message_internal(
         # Determine UI language for tool progress messages
         lang = _get_ui_language(db_session)
 
-        # Run synchronous AI processing in a thread to avoid blocking event loop
-        def process_ai_sync():
-            """Synchronous AI processing - runs in thread pool."""
-            events = []
-            for event in stream_chat_response(db_session, conv.id, text):
-                events.append(event)
-            return events
-
+        # Stream AI response in a thread pool while sending tool progress in real-time.
+        # See telegram_bot_service.py _process_polling_message for detailed explanation.
         import asyncio
         loop = asyncio.get_event_loop()
-        events = await loop.run_in_executor(None, process_ai_sync)
 
-        # Process events and collect response
-        full_response = ""
-        tool_calls = []
-        for event in events:
-            event_type = None
-            data_str = None
-            for line in event.split("\n"):
-                if line.startswith("event: "):
-                    event_type = line[7:].strip()
-                elif line.startswith("data: "):
-                    data_str = line[6:]
+        def process_ai_sync():
+            full_resp = ""
+            for event in stream_chat_response(db_session, conv.id, text):
+                event_type = None
+                data_str = None
+                for line in event.split("\n"):
+                    if line.startswith("event: "):
+                        event_type = line[7:].strip()
+                    elif line.startswith("data: "):
+                        data_str = line[6:]
+                if not data_str:
+                    continue
+                try:
+                    data = json.loads(data_str)
+                    if event_type == "tool_call" and data.get("name"):
+                        label = _get_tool_label(data["name"], lang)
+                        msg = f"【🤖Hyper AI】{label}..."
+                        asyncio.run_coroutine_threadsafe(
+                            send_discord_message_via_client(user_id, msg), loop
+                        )
+                    elif event_type == "content":
+                        full_resp += data.get("text", "")
+                    elif event_type == "error":
+                        full_resp = f"Error: {data.get('message', 'Unknown error')}"
+                except json.JSONDecodeError:
+                    pass
+            return full_resp
 
-            if not data_str:
-                continue
-            try:
-                data = json.loads(data_str)
-                if event_type == "tool_call" and data.get("name"):
-                    tool_calls.append(data["name"])
-                elif event_type == "content":
-                    full_response += data.get("text", "")
-                elif event_type == "error":
-                    full_response = f"Error: {data.get('message', 'Unknown error')}"
-            except json.JSONDecodeError:
-                pass
-
-        # Send tool call progress (combined into one message to reduce spam)
-        if tool_calls:
-            labels = [_get_tool_label(name, lang) for name in tool_calls[:5]]
-            if len(tool_calls) > 5:
-                labels.append(f"...+{len(tool_calls) - 5} more")
-            progress_msg = "【🤖Hyper AI】" + " → ".join(labels)
-            await send_discord_message_via_client(user_id, progress_msg)
+        full_response = await loop.run_in_executor(None, process_ai_sync)
 
         print(f"[Discord] AI response length={len(full_response)}", flush=True)
         return full_response
