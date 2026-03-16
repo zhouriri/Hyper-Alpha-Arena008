@@ -1,84 +1,40 @@
-// Avatar color presets for Arena View pixel characters
-// Presets 1-6: male, 7-12: female
-// Each key maps a pixel character code to an actual hex color
+// Avatar presets for Arena View — maps preset IDs to sprite sheet files
+// Sprites sourced from Stanford Generative Agents (MIT license)
+// Each sprite sheet: 96x128 PNG, 3 cols x 4 rows, 32x32 per frame
+// Row 0: face down, Row 1: face left, Row 2: face right, Row 3: face up
 
 export interface AvatarPreset {
   id: number
-  gender: 'male' | 'female'
-  palette: Record<string, string>
-}
-
-// Shared palette keys:
-// H = hair, S = skin, E = eye, M = mouth
-// C = shirt/top, P = pants, B = shoes/boots
-// . = transparent, D = desk, N = monitor, G = screen glow
-
-const SKIN_LIGHT = '#f5d0b0'
-const SKIN_MEDIUM = '#d4a574'
-const SKIN_TAN = '#c08850'
-const SKIN_DARK = '#8d5524'
-
-const SHARED = {
-  '.': 'transparent',
-  E: '#1a1a2e',  // eyes (dark)
-  M: '#c0392b',  // mouth
-  O: '#2c2c2c',  // outline/hair shadow
+  sprite: string  // filename in /static/arena-sprites/
+  label: string   // character reference name
 }
 
 export const AVATAR_PRESETS: AvatarPreset[] = [
-  // --- Male presets (1-6) ---
-  {
-    id: 1, gender: 'male',
-    palette: { ...SHARED, H: '#2c1810', S: SKIN_LIGHT, C: '#3498db', P: '#2c3e50', B: '#1a1a2e' },
-  },
-  {
-    id: 2, gender: 'male',
-    palette: { ...SHARED, H: '#8b4513', S: SKIN_MEDIUM, C: '#e74c3c', P: '#34495e', B: '#2c2c2c' },
-  },
-  {
-    id: 3, gender: 'male',
-    palette: { ...SHARED, H: '#1a1a2e', S: SKIN_TAN, C: '#2ecc71', P: '#2c3e50', B: '#1a1a2e' },
-  },
-  {
-    id: 4, gender: 'male',
-    palette: { ...SHARED, H: '#d4a017', S: SKIN_LIGHT, C: '#9b59b6', P: '#2c3e50', B: '#2c2c2c' },
-  },
-  {
-    id: 5, gender: 'male',
-    palette: { ...SHARED, H: '#c0392b', S: SKIN_MEDIUM, C: '#f39c12', P: '#34495e', B: '#1a1a2e' },
-  },
-  {
-    id: 6, gender: 'male',
-    palette: { ...SHARED, H: '#2c3e50', S: SKIN_DARK, C: '#1abc9c', P: '#2c3e50', B: '#2c2c2c' },
-  },
-  // --- Female presets (7-12) ---
-  {
-    id: 7, gender: 'female',
-    palette: { ...SHARED, H: '#8b4513', S: SKIN_LIGHT, C: '#e91e63', P: '#2c3e50', B: '#6c3483' },
-  },
-  {
-    id: 8, gender: 'female',
-    palette: { ...SHARED, H: '#1a1a2e', S: SKIN_MEDIUM, C: '#00bcd4', P: '#34495e', B: '#2c2c2c' },
-  },
-  {
-    id: 9, gender: 'female',
-    palette: { ...SHARED, H: '#d4a017', S: SKIN_TAN, C: '#ff5722', P: '#2c3e50', B: '#1a1a2e' },
-  },
-  {
-    id: 10, gender: 'female',
-    palette: { ...SHARED, H: '#c0392b', S: SKIN_LIGHT, C: '#673ab7', P: '#34495e', B: '#6c3483' },
-  },
-  {
-    id: 11, gender: 'female',
-    palette: { ...SHARED, H: '#2c1810', S: SKIN_DARK, C: '#ffeb3b', P: '#2c3e50', B: '#2c2c2c' },
-  },
-  {
-    id: 12, gender: 'female',
-    palette: { ...SHARED, H: '#4a0e0e', S: SKIN_MEDIUM, C: '#4caf50', P: '#2c3e50', B: '#1a1a2e' },
-  },
+  { id: 1,  sprite: 'Klaus_Mueller.png',      label: 'Klaus' },
+  { id: 2,  sprite: 'Carlos_Gomez.png',       label: 'Carlos' },
+  { id: 3,  sprite: 'Sam_Moore.png',          label: 'Sam' },
+  { id: 4,  sprite: 'Eddy_Lin.png',           label: 'Eddy' },
+  { id: 5,  sprite: 'Arthur_Burton.png',      label: 'Arthur' },
+  { id: 6,  sprite: 'Rajiv_Patel.png',        label: 'Rajiv' },
+  { id: 7,  sprite: 'Isabella_Rodriguez.png', label: 'Isabella' },
+  { id: 8,  sprite: 'Mei_Lin.png',            label: 'Mei' },
+  { id: 9,  sprite: 'Hailey_Johnson.png',     label: 'Hailey' },
+  { id: 10, sprite: 'Tamara_Taylor.png',      label: 'Tamara' },
+  { id: 11, sprite: 'Jennifer_Moore.png',     label: 'Jennifer' },
+  { id: 12, sprite: 'Yuriko_Yamamoto.png',    label: 'Yuriko' },
 ]
 
 export function getPreset(id: number | null | undefined): AvatarPreset {
   if (!id) return AVATAR_PRESETS[0]
   return AVATAR_PRESETS.find(p => p.id === id) || AVATAR_PRESETS[0]
 }
+
+// Sprite sheet constants
+export const SPRITE_FRAME_SIZE = 32  // each frame is 32x32
+export const SPRITE_COLS = 3
+export const SPRITE_ROWS = 4
+// Row indices by direction
+export const DIR_DOWN = 0
+export const DIR_LEFT = 1
+export const DIR_RIGHT = 2
+export const DIR_UP = 3

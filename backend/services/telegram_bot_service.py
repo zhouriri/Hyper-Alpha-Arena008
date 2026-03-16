@@ -372,50 +372,53 @@ async def _process_polling_message(token: str, chat_id: int, text: str, user: di
         ).first()
         lang = lang_config.value if lang_config and lang_config.value in ("en", "zh") else "en"
 
-        # Run synchronous AI processing in a thread to avoid blocking event loop
-        def process_ai_sync():
-            """Synchronous AI processing - runs in thread pool."""
-            events = []
-            for event in stream_chat_response(db_session, conv.id, text):
-                events.append(event)
-            return events
-
-        # Execute in thread pool
+        # Stream AI response in a thread pool while sending tool progress in real-time.
+        #
+        # Why run_in_executor + run_coroutine_threadsafe:
+        #   stream_chat_response() is a synchronous generator that blocks while
+        #   waiting for LLM responses. Running it directly in the async event loop
+        #   would block all other coroutines (e.g. Telegram polling, Discord gateway).
+        #   So we run the generator in a thread via run_in_executor.
+        #
+        #   But we still want to send tool_call progress messages to the user
+        #   *immediately* as they happen (not batched at the end), so inside the
+        #   thread we use run_coroutine_threadsafe to schedule the async send back
+        #   onto the event loop without waiting for the entire stream to finish.
+        #
+        # History: commit 32525bf (2026-03-02) moved processing into run_in_executor
+        # but collected all events first then sent progress at the end, which broke
+        # real-time progress. This version restores real-time sending.
         loop = asyncio.get_event_loop()
-        events = await loop.run_in_executor(None, process_ai_sync)
 
-        # Process events and collect response
-        full_response = ""
-        tool_calls = []
-        for event in events:
-            event_type = None
-            data_str = None
-            for line in event.split("\n"):
-                if line.startswith("event: "):
-                    event_type = line[7:].strip()
-                elif line.startswith("data: "):
-                    data_str = line[6:]
+        def process_ai_sync():
+            full_resp = ""
+            for event in stream_chat_response(db_session, conv.id, text):
+                event_type = None
+                data_str = None
+                for line in event.split("\n"):
+                    if line.startswith("event: "):
+                        event_type = line[7:].strip()
+                    elif line.startswith("data: "):
+                        data_str = line[6:]
+                if not data_str:
+                    continue
+                try:
+                    data = json.loads(data_str)
+                    if event_type == "tool_call" and data.get("name"):
+                        label = get_tool_label(data["name"], lang)
+                        msg = f"【🤖Hyper AI】{label}..."
+                        asyncio.run_coroutine_threadsafe(
+                            send_telegram_message(token, chat_id, msg), loop
+                        )
+                    elif event_type == "content":
+                        full_resp += data.get("text", "")
+                    elif event_type == "error":
+                        full_resp = f"Error: {data.get('message', 'Unknown error')}"
+                except json.JSONDecodeError:
+                    pass
+            return full_resp
 
-            if not data_str:
-                continue
-            try:
-                data = json.loads(data_str)
-                if event_type == "tool_call" and data.get("name"):
-                    tool_calls.append(data["name"])
-                elif event_type == "content":
-                    full_response += data.get("text", "")
-                elif event_type == "error":
-                    full_response = f"Error: {data.get('message', 'Unknown error')}"
-            except json.JSONDecodeError:
-                pass
-
-        # Send tool call progress (combined into one message to reduce spam)
-        if tool_calls:
-            labels = [get_tool_label(name, lang) for name in tool_calls[:5]]  # Limit to 5
-            if len(tool_calls) > 5:
-                labels.append(f"...+{len(tool_calls) - 5} more")
-            progress_msg = "【🤖Hyper AI】" + " → ".join(labels)
-            await send_telegram_message(token, chat_id, progress_msg)
+        full_response = await loop.run_in_executor(None, process_ai_sync)
 
         print(f"[TG-POLL] AI response length={len(full_response)}", flush=True)
 

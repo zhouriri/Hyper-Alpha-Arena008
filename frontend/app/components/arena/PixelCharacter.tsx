@@ -1,60 +1,53 @@
 import { useEffect, useState } from 'react'
-import type { AvatarPreset } from './pixelData/palettes'
-import type { CharacterState, FrameSet } from './pixelData/characters'
-import { getFrames } from './pixelData/characters'
+import { getPreset, SPRITE_FRAME_SIZE, SPRITE_COLS, DIR_DOWN } from './pixelData/palettes'
+import type { CharacterState } from './pixelData/characters'
 
 interface PixelCharacterProps {
-  preset: AvatarPreset
+  presetId: number | null
   state: CharacterState
-  pixelSize?: number
+  scale?: number  // display scale multiplier (e.g. 2 = 64x64)
 }
 
+// Walk animation frame columns: 0 -> 1 -> 2 -> 1 (loop)
+const WALK_SEQUENCE = [0, 1, 2, 1]
+
 export default function PixelCharacter({
-  preset,
+  presetId,
   state,
-  pixelSize = 3,
+  scale = 2.5,
 }: PixelCharacterProps) {
-  const frameSet: FrameSet = getFrames(preset.gender, state)
-  const [frameIndex, setFrameIndex] = useState(0)
+  const preset = getPreset(presetId)
+  const [frameIdx, setFrameIdx] = useState(1) // start at idle (middle frame)
+
+  const isAnimating = state !== 'offline' && state !== 'idle'
 
   useEffect(() => {
-    if (frameSet.frames.length <= 1) return
+    if (!isAnimating) {
+      setFrameIdx(1) // idle = middle frame
+      return
+    }
+    let idx = 0
     const timer = setInterval(() => {
-      setFrameIndex(prev => (prev + 1) % frameSet.frames.length)
-    }, frameSet.intervalMs)
+      idx = (idx + 1) % WALK_SEQUENCE.length
+      setFrameIdx(WALK_SEQUENCE[idx])
+    }, 400)
     return () => clearInterval(timer)
-  }, [frameSet.frames.length, frameSet.intervalMs])
+  }, [isAnimating])
 
-  const frame = frameSet.frames[frameIndex]
-  const rows = frame.length
-  const cols = frame[0]?.length || 0
-  const width = cols * pixelSize
-  const height = rows * pixelSize
+  const displaySize = SPRITE_FRAME_SIZE * scale
+  const col = frameIdx
+  const row = DIR_DOWN  // face toward viewer
 
   return (
-    <svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${cols} ${rows}`}
-      xmlns="http://www.w3.org/2000/svg"
-      style={{ imageRendering: 'pixelated' }}
-    >
-      {frame.map((row, y) =>
-        row.split('').map((char, x) => {
-          const color = preset.palette[char]
-          if (!color || color === 'transparent') return null
-          return (
-            <rect
-              key={`${y}-${x}`}
-              x={x}
-              y={y}
-              width={1}
-              height={1}
-              fill={color}
-            />
-          )
-        })
-      )}
-    </svg>
+    <div
+      style={{
+        width: displaySize,
+        height: displaySize,
+        backgroundImage: `url(/static/arena-sprites/${preset.sprite})`,
+        backgroundSize: `${SPRITE_COLS * displaySize}px ${4 * displaySize}px`,
+        backgroundPosition: `-${col * displaySize}px -${row * displaySize}px`,
+        imageRendering: 'pixelated',
+      }}
+    />
   )
 }

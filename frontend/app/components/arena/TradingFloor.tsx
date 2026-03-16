@@ -14,73 +14,63 @@ export interface TraderData {
 
 interface TradingFloorProps {
   traders: TraderData[]
-  onTraderClick?: (accountId: number) => void
 }
 
-export default function TradingFloor({ traders, onTraderClick }: TradingFloorProps) {
-  // Compute grid layout based on trader count
-  const layout = useMemo(() => {
+export default function TradingFloor({ traders }: TradingFloorProps) {
+  const cols = useMemo(() => {
     const count = traders.length
-    if (count <= 2) return { cols: count, rows: 1 }
-    if (count <= 4) return { cols: 2, rows: Math.ceil(count / 2) }
-    if (count <= 6) return { cols: 3, rows: Math.ceil(count / 3) }
-    return { cols: 3, rows: Math.ceil(count / 3) }
+    if (count <= 1) return 1
+    if (count <= 2) return 2
+    if (count <= 4) return 2
+    return 3
   }, [traders.length])
 
-  const needsScroll = traders.length > 6
-
   return (
-    <div className="relative w-full h-full min-h-[280px] rounded-lg overflow-hidden">
-      {/* Floor background with grid lines */}
+    <div className="relative w-full h-full min-h-[300px] rounded-lg overflow-hidden border border-border/30">
+      {/* Dark floor background */}
       <div
         className="absolute inset-0"
         style={{
-          background: `
-            linear-gradient(135deg, #0a0a1a 0%, #0d1117 50%, #0a0a1a 100%)
-          `,
+          background: 'linear-gradient(160deg, #0c0e14 0%, #111318 40%, #0e1016 100%)',
         }}
       />
-      {/* Subtle grid overlay */}
+      {/* Subtle floor tile pattern */}
       <div
-        className="absolute inset-0 opacity-[0.06]"
+        className="absolute inset-0 opacity-[0.035]"
         style={{
           backgroundImage: `
-            linear-gradient(rgba(100,200,255,0.5) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(100,200,255,0.5) 1px, transparent 1px)
+            linear-gradient(rgba(150,180,220,0.8) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(150,180,220,0.8) 1px, transparent 1px)
           `,
-          backgroundSize: '40px 40px',
+          backgroundSize: '48px 48px',
         }}
       />
-      {/* Subtle glow at bottom center */}
+      {/* Ambient floor glow */}
       <div
-        className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[60%] h-[40%] opacity-[0.04] rounded-full blur-3xl"
+        className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[70%] h-[50%] opacity-[0.03] rounded-full blur-3xl pointer-events-none"
         style={{ background: 'radial-gradient(ellipse, #6366f1, transparent)' }}
       />
 
       {/* Workstation grid */}
-      <div
-        className={`relative z-10 flex items-center justify-center h-full p-4 ${
-          needsScroll ? 'overflow-x-auto' : ''
-        }`}
-      >
+      <div className="relative z-10 flex items-center justify-center h-full p-6">
         <div
-          className="grid gap-6"
+          className="grid"
           style={{
-            gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${cols}, 160px)`,
+            gap: '24px 32px',
           }}
         >
           {traders.map((trader) => (
-            <Workstation
-              key={trader.accountId}
-              traderName={trader.accountName}
-              equity={trader.equity}
-              unrealizedPnl={trader.unrealizedPnl}
-              positionCount={trader.positionCount}
-              avatarPresetId={trader.avatarPresetId}
-              state={trader.state}
-              onClick={() => onTraderClick?.(trader.accountId)}
-              pixelSize={3}
-            />
+            <div key={trader.accountId} className="flex justify-center">
+              <Workstation
+                traderName={trader.accountName}
+                equity={trader.equity}
+                unrealizedPnl={trader.unrealizedPnl}
+                positionCount={trader.positionCount}
+                avatarPresetId={trader.avatarPresetId}
+                state={trader.state}
+              />
+            </div>
           ))}
         </div>
       </div>

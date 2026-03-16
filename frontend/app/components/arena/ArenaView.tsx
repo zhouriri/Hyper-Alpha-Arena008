@@ -1,8 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import TradingFloor, { type TraderData } from './TradingFloor'
 import type { CharacterState } from './pixelData/characters'
-import TraderDetailModal from '@/components/portfolio/TraderDetailModal'
 import type { Position } from '@/components/portfolio/HyperliquidMultiAccountSummary'
 import type { HyperliquidEnvironment } from '@/lib/types/hyperliquid'
 
@@ -30,7 +29,6 @@ interface ArenaViewProps {
   positions: Position[]
   accountBalances: AccountBalance[]
   environment: HyperliquidEnvironment
-  onTraderClick?: (accountId: number) => void
 }
 
 function deriveState(
@@ -38,19 +36,14 @@ function deriveState(
   accountPositions: Position[],
   balance: AccountBalance | undefined,
 ): CharacterState {
-  // Priority 1: Offline
   if (account.auto_trading_enabled === false) return 'offline'
-
-  // Priority 2: Error
   if (balance?.error) return 'error'
 
-  // Priority 6/7: Holding with PnL
   const totalPnl = accountPositions.reduce((sum, p) => sum + p.unrealized_pnl, 0)
   if (accountPositions.length > 0) {
     return totalPnl >= 0 ? 'holding_profit' : 'holding_loss'
   }
 
-  // Priority 8: Idle (no positions)
   return 'idle'
 }
 
@@ -58,12 +51,8 @@ export default function ArenaView({
   accounts,
   positions,
   accountBalances,
-  environment,
-  onTraderClick,
 }: ArenaViewProps) {
   const { t } = useTranslation()
-  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
-  const [isModalOpen, setIsModalOpen] = useState(false)
 
   const traders: TraderData[] = useMemo(() => {
     return accounts.map((acc) => {
@@ -88,19 +77,6 @@ export default function ArenaView({
     })
   }, [accounts, positions, accountBalances])
 
-  const handleTraderClick = (accountId: number) => {
-    setSelectedAccountId(accountId)
-    setIsModalOpen(true)
-    onTraderClick?.(accountId)
-  }
-
-  const selectedBalance = accountBalances.find(
-    (b) => b.accountId === selectedAccountId
-  )
-  const selectedPositions = positions.filter(
-    (p) => p.account_id === selectedAccountId
-  )
-
   if (accounts.length === 0) {
     return (
       <div className="flex items-center justify-center h-full min-h-[280px] rounded-lg bg-card border border-border">
@@ -111,23 +87,5 @@ export default function ArenaView({
     )
   }
 
-  return (
-    <>
-      <TradingFloor
-        traders={traders}
-        onTraderClick={handleTraderClick}
-      />
-
-      {/* Reuse existing TraderDetailModal */}
-      {selectedBalance && (
-        <TraderDetailModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          account={selectedBalance as any}
-          positions={selectedPositions}
-          environment={environment}
-        />
-      )}
-    </>
-  )
+  return <TradingFloor traders={traders} />
 }
