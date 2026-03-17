@@ -585,6 +585,7 @@ class BinanceTradingClient:
             "quantity": str(rounded_qty),
             "triggerPrice": str(rounded_stop),
             "workingType": working_type,
+            "timeInForce": "GTE_GTC",
         }
 
         # For limit-type orders (STOP, TAKE_PROFIT), price is required

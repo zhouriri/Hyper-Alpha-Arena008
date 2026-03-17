@@ -1861,6 +1861,7 @@ class HyperliquidTradingClient:
     ) -> Dict[str, Any]:
         """
         Update TP and/or SL orders for an existing position
+        NOTE: Not currently used by any execution path (Program Trader or AI Trader).
 
         This method:
         1. Gets current TP/SL orders from Hyperliquid API FIRST
