@@ -653,22 +653,43 @@ class HistoricalDataProvider:
         price = self._get_price_at_time(symbol, self.current_time_ms)
         result = {"symbol": symbol, "price": price or 0.0}
 
-        # Get additional data from market_asset_metrics if available
+        # Get additional data from market_asset_metrics if available.
+        # Binance stores mark_price and open_interest in separate rows
+        # (timestamps differ by ~1ms), so we fetch each field's latest
+        # non-null value independently instead of relying on a single row.
         try:
-            db_result = self.db.execute(text("""
-                SELECT mark_price, funding_rate, open_interest
+            mark_price_val = None
+            funding_rate_val = None
+            oi_val = None
+
+            row_mp = self.db.execute(text("""
+                SELECT mark_price, funding_rate
                 FROM market_asset_metrics
-                WHERE symbol = :symbol AND exchange = :exchange AND timestamp <= :ts
+                WHERE symbol = :symbol AND exchange = :exchange
+                AND timestamp <= :ts AND mark_price IS NOT NULL
                 ORDER BY timestamp DESC LIMIT 1
-            """), {"symbol": symbol, "exchange": self.exchange, "ts": self.current_time_ms})
-            row = db_result.fetchone()
-            if row:
+            """), {"symbol": symbol, "exchange": self.exchange, "ts": self.current_time_ms}).fetchone()
+            if row_mp:
+                mark_price_val = float(row_mp[0] or 0)
+                funding_rate_val = float(row_mp[1] or 0)
+
+            row_oi = self.db.execute(text("""
+                SELECT open_interest
+                FROM market_asset_metrics
+                WHERE symbol = :symbol AND exchange = :exchange
+                AND timestamp <= :ts AND open_interest IS NOT NULL
+                ORDER BY timestamp DESC LIMIT 1
+            """), {"symbol": symbol, "exchange": self.exchange, "ts": self.current_time_ms}).fetchone()
+            if row_oi:
+                oi_val = float(row_oi[0] or 0)
+
+            if mark_price_val is not None or oi_val is not None:
                 result = {
                     "symbol": symbol,
-                    "price": price or float(row[0] or 0),
-                    "mark_price": float(row[0] or 0),
-                    "funding_rate": float(row[1] or 0),
-                    "open_interest": float(row[2] or 0),
+                    "price": price or (mark_price_val or 0),
+                    "mark_price": mark_price_val or 0,
+                    "funding_rate": funding_rate_val or 0,
+                    "open_interest": oi_val or 0,
                 }
         except Exception as e:
             logger.warning(f"Failed to get market data for {symbol}: {e}")

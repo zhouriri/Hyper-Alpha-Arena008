@@ -216,13 +216,14 @@ class DataProvider:
         logger = logging.getLogger(__name__)
         result = {}
         try:
-            # Check if we have cached raw kline data from get_klines()
-            raw_cache_key = f"{symbol}_{period}_raw"
-            if raw_cache_key in self._kline_cache:
-                kline_data = self._kline_cache[raw_cache_key]
+            # Always use 500 candles for indicator calculation accuracy.
+            # Do NOT reuse _raw cache from get_klines() which may have fewer
+            # candles (e.g. 100 from a count=1 call), causing EMA100 to have
+            # only 1 valid value instead of 400+.
+            indicator_cache_key = f"{symbol}_{period}_indicator_raw"
+            if indicator_cache_key in self._kline_cache:
+                kline_data = self._kline_cache[indicator_cache_key]
             else:
-                # Fetch real-time K-line data (same as AI Trader)
-                # Use 500 candles for accurate indicator calculation
                 kline_data = get_kline_data(
                     symbol=symbol,
                     market=self._get_market_param(),
@@ -232,7 +233,7 @@ class DataProvider:
                     persist=False
                 )
                 if kline_data:
-                    self._kline_cache[raw_cache_key] = kline_data
+                    self._kline_cache[indicator_cache_key] = kline_data
 
             if not kline_data:
                 logger.warning(f"No kline data for indicator {indicator} on {symbol} {period}")
