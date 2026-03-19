@@ -64,6 +64,8 @@ interface HyperliquidAssetChartProps {
   selectedExchange?: 'all' | 'hyperliquid' | 'binance'
 }
 
+const SMALL_GAP_FILL_THRESHOLD_SECONDS = 15 * 60
+
 export default function HyperliquidAssetChart({
   accountId,
   refreshTrigger,
@@ -211,11 +213,37 @@ export default function HyperliquidAssetChart({
       }
     })
 
-    const chartData = Array.from(timeGroups.values()).sort((a, b) => a.timestamp - b.timestamp)
+    const rawChartData = Array.from(timeGroups.values()).sort((a, b) => a.timestamp - b.timestamp)
     const accountsData = Array.from(accounts.entries()).map(([key, info]) => ({
       key,  // "accountId_exchange"
       ...info
     }))
+
+    // Smooth over short snapshot gaps caused by transient network hiccups.
+    // Long gaps remain disconnected to avoid implying continuous data where none exists.
+    const chartData = rawChartData.map(point => ({ ...point }))
+    for (const account of accountsData) {
+      let previousKnownIndex: number | null = null
+
+      for (let i = 0; i < chartData.length; i++) {
+        const value = chartData[i][account.curveKey]
+        if (typeof value !== 'number') continue
+
+        if (previousKnownIndex !== null) {
+          const previousPoint = chartData[previousKnownIndex]
+          const gapSeconds = chartData[i].timestamp - previousPoint.timestamp
+          if (gapSeconds > 0 && gapSeconds <= SMALL_GAP_FILL_THRESHOLD_SECONDS) {
+            for (let j = previousKnownIndex + 1; j < i; j++) {
+              if (chartData[j][account.curveKey] == null) {
+                chartData[j][account.curveKey] = previousPoint[account.curveKey]
+              }
+            }
+          }
+        }
+
+        previousKnownIndex = i
+      }
+    }
 
     // Calculate baseline (initial capital) - only meaningful for single account view
     let baseline: number | null = null
