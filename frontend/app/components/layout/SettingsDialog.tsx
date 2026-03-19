@@ -23,6 +23,7 @@ import {
   type TraderExportData
 } from '@/lib/api'
 import {
+  connectBrowserWallet,
   checkBuilderFeeAuthorized,
   approveBuilderFee,
 } from '@/lib/hyperliquidWalletSetup'
@@ -281,21 +282,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
       // If enabling trading and account has mainnet wallet, check builder fee via browser wallet
       if (nextValue && account.has_mainnet_wallet) {
         try {
-          const ethereum = (window as any).ethereum
-          if (!ethereum) {
-            toast.error(t('wallet.error.noWallet', 'No browser wallet detected. Please install MetaMask or Rabby.'))
-            setToggleLoadingId(null)
-            return
-          }
-
-          const accounts: string[] = await ethereum.request({ method: 'eth_accounts' })
-          if (!accounts || accounts.length === 0) {
-            toast.error(t('wallet.error.noAccount', 'No account selected in wallet. Please unlock your wallet and try again.'))
-            setToggleLoadingId(null)
-            return
-          }
-
-          const masterAddress = accounts[0]
+          const masterAddress = await connectBrowserWallet()
           const authorized = await checkBuilderFeeAuthorized(masterAddress, 'mainnet')
           if (!authorized) {
             toast.loading(t('wallet.builder.signing', 'Please approve trading authorization in your wallet...'), { id: 'builder-auth' })
@@ -306,7 +293,15 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
         } catch (err: any) {
           toast.dismiss('builder-auth')
           console.error('Builder fee authorization failed:', err)
-          toast.error(t('wallet.builder.failed', 'Authorization failed. You must complete trading authorization to start trading.'))
+          if (err?.errorCode === 'NO_BROWSER_WALLET') {
+            toast.error(t('wallet.error.noWallet', 'No browser wallet detected. Please install MetaMask or Rabby.'))
+          } else if (err?.errorCode === 'NO_ACCOUNT_SELECTED') {
+            toast.error(t('wallet.error.noAccount', 'No account selected in wallet. Please unlock your wallet and try again.'))
+          } else if (err?.code === 4001) {
+            toast.error(t('wallet.error.userRejected', 'Authorization rejected by user.'))
+          } else {
+            toast.error(t('wallet.builder.failed', 'Authorization failed. You must complete trading authorization to start trading.'))
+          }
           setToggleLoadingId(null)
           return
         }

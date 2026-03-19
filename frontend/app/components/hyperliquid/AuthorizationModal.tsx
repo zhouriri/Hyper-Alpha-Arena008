@@ -9,6 +9,7 @@ import {
 import {
   checkBuilderFeeAuthorized,
   approveBuilderFee,
+  connectBrowserWallet,
 } from '@/lib/hyperliquidWalletSetup'
 
 interface AuthorizationModalProps {
@@ -55,26 +56,7 @@ export default function AuthorizationModal({
   const handleAuthorize = async (account: UnauthorizedAccount) => {
     updateAccountState(account.account_id, { authorizing: true, error: undefined })
     try {
-      // Get master address from browser wallet
-      const ethereum = (window as any).ethereum
-      if (!ethereum) {
-        updateAccountState(account.account_id, {
-          authorizing: false,
-          error: 'No browser wallet detected. Please install MetaMask or Rabby.'
-        })
-        return
-      }
-
-      const accounts: string[] = await ethereum.request({ method: 'eth_accounts' })
-      if (!accounts || accounts.length === 0) {
-        updateAccountState(account.account_id, {
-          authorizing: false,
-          error: 'No account selected in wallet. Please unlock your wallet and try again.'
-        })
-        return
-      }
-
-      const masterAddress = accounts[0]
+      const masterAddress = await connectBrowserWallet()
 
       // Sign ApproveBuilderFee via browser wallet
       await approveBuilderFee(masterAddress, 'mainnet')
