@@ -338,7 +338,6 @@ The `Trade` object represents a recently closed trade.
 **Example Usage**:
 ```python
 # Check last trade time to avoid rapid trading
-import time
 if data.recent_trades:
     last_trade = data.recent_trades[0]  # Most recent first
     time_since_last = time.time() * 1000 - last_trade.timestamp
@@ -1406,12 +1405,15 @@ if current > 0.5:
 
 ## Helper Functions
 
-### Available Modules
+### Available Sandbox Objects
 
 ```python
-import time   # For timestamp operations
-import math   # For mathematical functions
+time   # Pre-injected sandbox object for timestamp operations
+math   # Pre-injected sandbox object for mathematical functions
 ```
+
+Do not write `import time` or `import math` in Program Trader code.
+Use `time.time()` and `math.sqrt()` directly.
 
 ### Time Module Functions
 
@@ -1422,8 +1424,6 @@ time.time() * 1000    # Current timestamp in milliseconds (for comparison with t
 
 **Example Usage**:
 ```python
-import time
-
 # Check time since last trade to avoid rapid trading
 if data.recent_trades:
     last_trade = data.recent_trades[0]
@@ -1544,4 +1544,3 @@ class TrendStrategy:
 
         return Decision(operation="hold", symbol=symbol, reason="Waiting for signal")
 ```
-

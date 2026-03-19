@@ -5,6 +5,7 @@ Safely executes strategy code with restricted environment.
 
 import ast
 import math
+import time as pytime
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -80,6 +81,11 @@ SAFE_MATH = {
     "floor": math.floor,
     "ceil": math.ceil,
     "fabs": math.fabs,
+}
+
+# Safe time functions
+SAFE_TIME = {
+    "time": pytime.time,
 }
 
 
@@ -193,6 +199,7 @@ class SandboxExecutor:
         restricted_globals = {
             "__builtins__": SAFE_BUILTINS,
             "math": type("math", (), SAFE_MATH)(),
+            "time": type("time", (), SAFE_TIME)(),
             "MarketData": MarketData,
             "Decision": Decision,
             "ActionType": ActionType,

@@ -330,7 +330,6 @@ if "BTC" in data.positions:
 **使用示例**：
 ```python
 # 检查上次交易时间，避免频繁交易
-import time
 if data.recent_trades:
     last_trade = data.recent_trades[0]  # 最近的在前
     time_since_last = time.time() * 1000 - last_trade.timestamp
@@ -1173,12 +1172,15 @@ if current > 0.5:
 
 ## 辅助函数
 
-### 可用模块
+### 可用沙箱对象
 
 ```python
-import time   # 时间戳操作
-import math   # 数学函数
+time   # 预注入的沙箱对象，用于时间戳操作
+math   # 预注入的沙箱对象，用于数学函数
 ```
+
+不要在 Program Trader 代码里写 `import time` 或 `import math`。
+请直接使用 `time.time()` 和 `math.sqrt()`。
 
 ### time 模块函数
 
@@ -1189,8 +1191,6 @@ time.time() * 1000    # 当前时间戳（毫秒，用于与 trade.timestamp 比
 
 **使用示例**：
 ```python
-import time
-
 # 检查距离上次交易的时间，避免频繁交易
 if data.recent_trades:
     last_trade = data.recent_trades[0]
@@ -1311,4 +1311,3 @@ class TrendStrategy:
 
         return Decision(operation="hold", symbol=symbol, reason="等待信号")
 ```
-

@@ -500,9 +500,9 @@ def should_trade(self, data):
             pass
 ```
 
-### Additional modules available
-- `time`: For timestamp operations (e.g., `time.time()` returns current Unix timestamp)
-- `math`: Mathematical functions (sqrt, log, exp, pow, floor, ceil, fabs)
+### Additional sandbox objects available
+- `time`: Pre-injected sandbox object for timestamp operations (use `time.time()`, do NOT write `import time`)
+- `math`: Pre-injected sandbox object for math helpers (use `math.sqrt()`, `math.log()`, etc.; do NOT write `import math`)
 
 ## EXAMPLE STRATEGY
 ```python
@@ -1097,8 +1097,8 @@ Get top factors ranked by |ICIR| (most reliable first).
 - Not available in backtest mode
 
 ### Available in Sandbox
-- time: For timestamp operations (time.time() returns Unix timestamp)
-- math: sqrt, log, log10, exp, pow, floor, ceil, fabs
+- time: Pre-injected sandbox object, use `time.time()` directly without importing
+- math: Pre-injected sandbox object, use `math.sqrt()` / `math.log()` / `math.exp()` directly without importing
 - log(message): Debug output function
 """
 

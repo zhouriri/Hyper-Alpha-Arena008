@@ -40,6 +40,11 @@ ALLOWED_BUILTINS = {
     "True", "False", "None",
 }
 
+PREINJECTED_MODULE_GUIDANCE = {
+    "math": "Do not use import math. Use injected math.sqrt()/math.log()/math.exp() directly.",
+    "time": "Do not use import time. Use injected time.time() directly.",
+}
+
 
 class CodeValidator:
     """Validates strategy code for safety and correctness."""
@@ -94,12 +99,18 @@ class CodeValidator:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     module = alias.name.split(".")[0]
+                    if module in PREINJECTED_MODULE_GUIDANCE:
+                        errors.append(PREINJECTED_MODULE_GUIDANCE[module])
+                        continue
                     if module in FORBIDDEN_IMPORTS:
                         errors.append(f"Forbidden import: {alias.name}")
 
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
                     module = node.module.split(".")[0]
+                    if module in PREINJECTED_MODULE_GUIDANCE:
+                        errors.append(PREINJECTED_MODULE_GUIDANCE[module])
+                        continue
                     if module in FORBIDDEN_IMPORTS:
                         errors.append(f"Forbidden import: {node.module}")
 

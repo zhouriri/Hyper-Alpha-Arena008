@@ -36,7 +36,7 @@ class MyStrategy:
                 leverage=10,
                 reason="RSI oversold"
             )
-        return Decision(action=ActionType.HOLD, symbol=data.trigger_symbol)
+        return Decision(operation="hold", symbol=data.trigger_symbol)
 '''
     result = validate_strategy_code(valid_code)
     print(f"Valid code test: is_valid={result.is_valid}, errors={result.errors}")
@@ -46,7 +46,7 @@ class MyStrategy:
     invalid_syntax = '''
 class MyStrategy:
     def should_trade(self, data)
-        return Decision(action=ActionType.HOLD)
+        return Decision(operation="hold", symbol="BTC")
 '''
     result = validate_strategy_code(invalid_syntax)
     print(f"Syntax error test: is_valid={result.is_valid}, errors={result.errors}")
@@ -58,11 +58,33 @@ import os
 class MyStrategy:
     def should_trade(self, data):
         os.system("rm -rf /")
-        return Decision(action=ActionType.HOLD, symbol="BTC")
+        return Decision(operation="hold", symbol="BTC")
 '''
     result = validate_strategy_code(forbidden_import)
     print(f"Forbidden import test: is_valid={result.is_valid}, errors={result.errors}")
     assert not result.is_valid, "Forbidden import should fail"
+
+    # Invalid code - pre-injected math should not be imported
+    imported_math = '''
+import math
+class MyStrategy:
+    def should_trade(self, data):
+        return Decision(operation="hold", symbol="BTC", reason=str(math.sqrt(4)))
+'''
+    result = validate_strategy_code(imported_math)
+    print(f"Import math test: is_valid={result.is_valid}, errors={result.errors}")
+    assert not result.is_valid, "import math should fail validation"
+
+    # Invalid code - pre-injected time should not be imported
+    imported_time = '''
+import time
+class MyStrategy:
+    def should_trade(self, data):
+        return Decision(operation="hold", symbol="BTC", reason=str(time.time()))
+'''
+    result = validate_strategy_code(imported_time)
+    print(f"Import time test: is_valid={result.is_valid}, errors={result.errors}")
+    assert not result.is_valid, "import time should fail validation"
 
     # Invalid code - missing should_trade
     missing_method = '''
@@ -90,7 +112,7 @@ class SimpleStrategy:
         # Simple strategy: always hold
         log(f"Processing {data.trigger_symbol}")
         return Decision(
-            action=ActionType.HOLD,
+            operation="hold",
             symbol=data.trigger_symbol,
             reason="Test strategy - always hold"
         )
@@ -102,7 +124,6 @@ class SimpleStrategy:
         total_equity=10000.0,
         trigger_symbol="BTC",
         trigger_type="signal",
-        prices={"BTC": 42000.0},
     )
 
     result = execute_strategy(code, market_data, {"buy_threshold": 25})
@@ -111,8 +132,39 @@ class SimpleStrategy:
     print(f"Execution time: {result.execution_time_ms:.2f}ms")
 
     assert result.success, f"Execution should succeed: {result.error}"
-    assert result.decision.action == ActionType.HOLD
+    assert result.decision.operation == ActionType.HOLD
     print("Executor test passed!")
+
+
+def test_preinjected_modules():
+    """Test pre-injected sandbox modules."""
+    print("\n=== Testing Pre-injected Modules ===")
+
+    code = '''
+class UtilityStrategy:
+    def should_trade(self, data):
+        price_root = math.sqrt(16)
+        current_ts = int(time.time())
+        return Decision(
+            operation="hold",
+            symbol=data.trigger_symbol,
+            reason=f"sqrt={price_root}, ts={current_ts}"
+        )
+'''
+
+    market_data = MarketData(
+        available_balance=10000.0,
+        total_equity=10000.0,
+        trigger_symbol="BTC",
+        trigger_type="signal",
+    )
+
+    result = execute_strategy(code, market_data)
+    print(f"Pre-injected modules result: success={result.success}, error={result.error}")
+
+    assert result.success, f"Pre-injected modules should succeed: {result.error}"
+    assert "sqrt=4.0" in (result.decision.reason or "")
+    print("Pre-injected modules test passed!")
 
 
 def test_timeout():
@@ -124,7 +176,7 @@ class BadStrategy:
     def should_trade(self, data):
         while True:
             pass
-        return Decision(action=ActionType.HOLD, symbol="BTC")
+        return Decision(operation="hold", symbol="BTC")
 '''
 
     market_data = MarketData(trigger_symbol="BTC")
@@ -139,6 +191,7 @@ if __name__ == "__main__":
     try:
         test_validator()
         test_executor()
+        test_preinjected_modules()
         test_timeout()
         print("\n=== All tests passed! ===")
     except Exception as e:
