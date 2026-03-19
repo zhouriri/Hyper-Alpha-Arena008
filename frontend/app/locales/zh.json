@@ -1388,6 +1388,7 @@
     "backtest": "回测",
     "backtestTitle": "回测",
     "backtestDateRequired": "请选择日期范围",
+    "endTimeClamped": "结束时间已调整为当前时间（不支持未来时间回测）",
     "startDate": "开始日期",
     "endDate": "结束日期",
     "initialBalance": "初始资金",

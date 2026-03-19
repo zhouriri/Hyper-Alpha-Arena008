@@ -1368,6 +1368,7 @@
     "backtest": "Backtest",
     "backtestTitle": "Backtest",
     "backtestDateRequired": "Please select date range",
+    "endTimeClamped": "End time clamped to current time (future backtesting not supported)",
     "startDate": "Start Date",
     "endDate": "End Date",
     "initialBalance": "Initial Balance",

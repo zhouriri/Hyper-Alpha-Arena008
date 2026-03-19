@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -138,6 +139,32 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
   const { t } = useTranslation()
   const collectionDays = useCollectionDays()
 
+  const getLocalDateString = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const getLocalTimeString = (date: Date) => {
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${hours}:${minutes}`
+  }
+
+  const getClampedEndDateTime = (dateValue: string, timeValue: string) => {
+    const candidate = new Date(`${dateValue}T${timeValue}:59`)
+    const now = new Date()
+    const clamped = candidate.getTime() > now.getTime() ? now : candidate
+
+    return {
+      date: getLocalDateString(clamped),
+      time: getLocalTimeString(clamped),
+      wasClamped: clamped.getTime() !== candidate.getTime(),
+      timeMs: clamped.getTime(),
+    }
+  }
+
   // History state
   const [historyList, setHistoryList] = useState<BacktestHistoryItem[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -146,9 +173,9 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
   const [startDate, setStartDate] = useState('')
   const [startTime, setStartTime] = useState('00:00')
   const [endDate, setEndDate] = useState('')
-  const [endTime, setEndTime] = useState('23:59')
+  const [endTime, setEndTime] = useState('')
   const [initialBalance, setInitialBalance] = useState('10000')
-  const todayDate = new Date().toISOString().split('T')[0]
+  const todayDate = getLocalDateString(new Date())
 
   // Execution state
   const [status, setStatus] = useState<BacktestStatus>('idle')
@@ -192,10 +219,10 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
       const end = new Date()
       const start = new Date()
       start.setDate(start.getDate() - 30)
-      setStartDate(start.toISOString().split('T')[0])
+      setStartDate(getLocalDateString(start))
       setStartTime('00:00')
-      setEndDate(end.toISOString().split('T')[0])
-      setEndTime('23:59')
+      setEndDate(getLocalDateString(end))
+      setEndTime(getLocalTimeString(end))
       setStatus('idle')
       setProgress(0)
       setResult(null)
@@ -362,9 +389,15 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
     try {
       // Convert user's local date+time selection to UTC milliseconds
       const startLocal = new Date(`${startDate}T${startTime}:00`)
-      const endLocal = new Date(`${endDate}T${endTime}:59`)
       const startTimeMs = startLocal.getTime()
-      const endTimeMs = endLocal.getTime()
+
+      // Clamp end time to now (no future backtesting)
+      const { date: clampedDate, time: clampedTime, wasClamped, timeMs: endTimeMs } = getClampedEndDateTime(endDate, endTime)
+      if (wasClamped) {
+        setEndDate(clampedDate)
+        setEndTime(clampedTime)
+        toast(t('programTrader.endTimeClamped', 'End time clamped to current time (future backtesting not supported)'), { icon: '⏱️' })
+      }
 
       const response = await fetch('/api/programs/backtest', {
         method: 'POST',
@@ -618,6 +651,9 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
               </span>
             )}
           </div>
+          <DialogDescription className="sr-only">
+            {t('programTrader.backtestTitle', 'Backtest')}
+          </DialogDescription>
         </DialogHeader>
 
         {/* Config Area - Two Rows */}
@@ -662,14 +698,24 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
                 type="date"
                 value={endDate}
                 max={todayDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                onChange={(e) => {
+                  const nextDate = e.target.value
+                  const { date, time, wasClamped } = getClampedEndDateTime(nextDate, endTime || '00:00')
+                  setEndDate(date)
+                  if (wasClamped) setEndTime(time)
+                }}
                 disabled={status === 'calculating' || status === 'running'}
                 className="w-32 h-8"
               />
               <Input
                 type="time"
                 value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
+                onChange={(e) => {
+                  const nextTime = e.target.value
+                  const { date, time } = getClampedEndDateTime(endDate || todayDate, nextTime)
+                  setEndDate(date)
+                  setEndTime(time)
+                }}
                 disabled={status === 'calculating' || status === 'running'}
                 className="w-24 h-8"
               />
