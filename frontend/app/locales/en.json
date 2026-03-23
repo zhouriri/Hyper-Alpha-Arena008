@@ -242,6 +242,8 @@
       "oiFunding": "OI / Funding",
       "funding": "Funding",
       "flowTitle": "Flow Evidence",
+      "whaleFlowTitle": "Whale Flow",
+      "newsFeedTitle": "News",
       "newsTitle": "News and Whale Flow",
       "totalInflow": "Total Inflow",
       "totalOutflow": "Total Outflow",

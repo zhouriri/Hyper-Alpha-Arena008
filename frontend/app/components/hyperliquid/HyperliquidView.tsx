@@ -135,9 +135,9 @@ export default function HyperliquidView({ wsRef, refreshKey = 0, onPageChange }:
   }
 
   return (
-    <div className="flex flex-col md:grid md:gap-6 md:grid-cols-5 h-full min-h-0 gap-4 pb-16 md:pb-0 overflow-y-auto md:overflow-hidden">
+    <div className="flex flex-col md:grid md:gap-6 md:grid-cols-[minmax(0,1fr)_minmax(320px,700px)] h-full min-h-0 gap-4 pb-16 md:pb-0 overflow-y-auto md:overflow-hidden">
       {/* Left Panel - Arena or Chart & Account Summary */}
-      <div className="md:col-span-3 flex flex-col gap-4 min-h-0">
+      <div className="min-w-0 flex flex-col gap-4 min-h-0">
         {/* View mode toggle */}
         <div className="flex items-center justify-between">
           <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -215,8 +215,8 @@ export default function HyperliquidView({ wsRef, refreshKey = 0, onPageChange }:
       </div>
 
       {/* Right Panel - Feed (hidden on mobile) */}
-      <div className="hidden md:flex md:col-span-2 flex-col min-h-0">
-        <div className="flex-1 min-h-0 border border-border rounded-lg bg-card shadow-sm px-4 py-3 flex flex-col">
+      <div className="hidden md:flex flex-col min-h-0 w-full max-w-[700px] justify-self-end">
+        <div className="flex-1 min-h-0 w-full border border-border rounded-lg bg-card shadow-sm px-4 py-3 flex flex-col">
           <AlphaArenaFeed
             wsRef={wsRef}
             selectedAccount={selectedAccount}

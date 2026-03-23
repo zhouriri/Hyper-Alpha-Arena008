@@ -12,6 +12,7 @@ import {
   type LargeOrderZoneItem,
   type MarketFlowSummaryItem,
   type NewsArticle,
+  startHyperAiInsightAnalysis,
 } from '@/lib/api'
 
 type InsightExchange = 'hyperliquid' | 'binance'
@@ -382,49 +383,11 @@ function buildEvents(
   return events.sort((a, b) => b.time - a.time)
 }
 
-function buildInsightPrompt(
-  lang: string,
-  context: Record<string, unknown>,
-  selectedEvent: InsightEvent | null,
-) {
-  const languageLabel = lang.startsWith('zh') ? 'Chinese' : 'English'
-  return [
-    'You are Hyper AI inside Hyper Alpha Arena.',
-    `Respond in ${languageLabel}.`,
-    'Do not use external tools unless absolutely necessary.',
-    'Use only the provided market intelligence context.',
-    'Write for a retail user who wants lower cognitive load.',
-    'Return exactly one JSON object and nothing else.',
-    'Do not use markdown fences.',
-    'Use this exact schema:',
-    '{',
-    '  "sentiment": "bullish|bearish|mixed",',
-    '  "probability": 0-100 integer,',
-    '  "market_emotion": "short phrase",',
-    '  "headline": "one sentence conclusion",',
-    '  "summary": "2-3 sentence plain-language explanation",',
-    '  "next_cycle_period": "the next period matching the current chart interval",',
-    '  "next_cycle_target_price": number|null,',
-    '  "next_cycle_range_low": number|null,',
-    '  "next_cycle_range_high": number|null,',
-    '  "key_drivers": ["driver 1", "driver 2", "driver 3"],',
-    '  "risks": ["risk 1", "risk 2"],',
-    '  "explanation_markdown": "short markdown explanation with evidence bullets"',
-    '}',
-    'The probability must reflect the directional confidence for the next cycle.',
-    'The next-cycle target and range must be your forecast for the next period, even if uncertain.',
-    'If evidence is mixed, set sentiment to "mixed" and explain the conflict clearly.',
-    'The context includes kline behavior, all relevant symbol news events, and the selected exchange fund-flow behavior.',
-    selectedEvent ? `Focus on the currently selected event: ${JSON.stringify(selectedEvent)}` : 'No event is selected.',
-    `Context JSON: ${JSON.stringify(context)}`,
-  ].join('\n')
-}
-
 export default function DashboardInsightView() {
   const { t, i18n } = useTranslation()
   const [selectedExchange, setSelectedExchange] = useState<InsightExchange>('hyperliquid')
   const [selectedSymbol, setSelectedSymbol] = useState('BTC')
-  const [selectedPeriod, setSelectedPeriod] = useState<InsightPeriod>('15m')
+  const [selectedPeriod, setSelectedPeriod] = useState<InsightPeriod>('1h')
   const analysisWindow: InsightWindow = '4h'
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([])
   const [summary, setSummary] = useState<MarketFlowSummaryItem | null>(null)
@@ -438,7 +401,6 @@ export default function DashboardInsightView() {
 
   const [aiInsightEnabled, setAiInsightEnabled] = useState(false)
   const [aiState, setAiState] = useState<InsightAiState>('idle')
-  const [aiConversationId, setAiConversationId] = useState<number | null>(null)
   const [aiResult, setAiResult] = useState('')
   const [aiInsight, setAiInsight] = useState<StructuredAiInsight | null>(null)
   const [aiGeneratedAt, setAiGeneratedAt] = useState<number | null>(null)
@@ -558,6 +520,14 @@ export default function DashboardInsightView() {
     () => events.filter(event => getBucketStart(event.time, eventBucketMs) === focusedBucketStart),
     [eventBucketMs, events, focusedBucketStart]
   )
+  const focusedFlowEvents = useMemo(
+    () => focusedEvents.filter(event => event.kind === 'flow'),
+    [focusedEvents]
+  )
+  const focusedNewsEvents = useMemo(
+    () => focusedEvents.filter(event => event.kind === 'news'),
+    [focusedEvents]
+  )
   const focusedBucketLabel = useMemo(() => {
     const start = focusedBucketStart
     const end = focusedBucketStart + eventBucketMs
@@ -660,23 +630,22 @@ export default function DashboardInsightView() {
     setAiGeneratedAt(null)
 
     try {
-      const response = await fetch('/api/hyper-ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: buildInsightPrompt(i18n.language, aiContext, selectedEvent),
-          conversation_id: aiConversationId,
-          lang: i18n.language?.startsWith('zh') ? 'zh' : 'en',
-        }),
+      const data = await startHyperAiInsightAnalysis({
+        context: aiContext,
+        selected_event: selectedEvent ? {
+          id: selectedEvent.id,
+          kind: selectedEvent.kind,
+          time: selectedEvent.time,
+          title: selectedEvent.title,
+          summary: selectedEvent.summary,
+          tone: selectedEvent.tone,
+          evidence: selectedEvent.evidence,
+        } : null,
+        lang: i18n.language?.startsWith('zh') ? 'zh' : 'en',
       })
 
-      const data = await response.json()
-      if (!response.ok || !data.task_id) {
-        throw new Error(data?.detail || data?.error || 'Failed to start Hyper AI insight analysis')
-      }
-
-      if (data.conversation_id && !aiConversationId) {
-        setAiConversationId(data.conversation_id)
+      if (!data.task_id) {
+        throw new Error('Failed to start Hyper AI insight analysis')
       }
 
       let content = ''
@@ -754,7 +723,7 @@ export default function DashboardInsightView() {
     }
 
     runInsightAnalysis(latestEventSignature)
-  }, [aiContext, aiConversationId, aiInsight, aiInsightEnabled, completedSignature, i18n.language, latestEventSignature])
+  }, [aiContext, aiInsight, aiInsightEnabled, completedSignature, i18n.language, latestEventSignature])
 
   const aiSentimentColor = aiInsight?.sentiment === 'bullish'
     ? 'text-emerald-600'
@@ -910,88 +879,143 @@ export default function DashboardInsightView() {
               <div className="text-[11px] text-muted-foreground">{focusedBucketLabel}</div>
             </div>
           </CardHeader>
-          <CardContent className="h-full overflow-y-auto">
-            <div className="grid gap-3 md:grid-cols-2">
-              {focusedEvents.map(event => {
-                const reaction15m = formatReactionAtOffset(chartContext, event.time, 15 * 60 * 1000)
-                const reaction1h = formatReactionAtOffset(chartContext, event.time, 60 * 60 * 1000)
+          <CardContent className="h-full overflow-hidden">
+            <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+              <div className="flex min-h-0 flex-col">
+                <div className="pb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  {t('dashboard.insight.whaleFlowTitle', 'Whale Flow')}
+                </div>
+                <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
+                  {focusedFlowEvents.map(event => {
+                    const reaction15m = formatReactionAtOffset(chartContext, event.time, 15 * 60 * 1000)
+                    const reaction1h = formatReactionAtOffset(chartContext, event.time, 60 * 60 * 1000)
 
-                return (
-                  <button
-                    key={event.id}
-                    type="button"
-                    onClick={() => setSelectedEventId(event.id)}
-                    className={`rounded-xl border p-3 text-left transition-all duration-300 ${selectedEventId === event.id ? 'border-sky-300 bg-sky-50 shadow-sm' : 'border-border bg-background hover:bg-muted/50'} ${recentEventIds.includes(event.id) ? 'ring-2 ring-sky-200' : ''}`}
-                    style={recentEventIds.includes(event.id) ? { animation: 'insight-card-in 360ms ease-out' } : undefined}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        {event.iconVariant !== 'news' && (
-                          <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
-                            event.iconVariant === 'flow-down'
-                              ? 'bg-red-50 text-red-600'
-                              : 'bg-emerald-50 text-emerald-600'
-                          }`}>
-                            <FlowEventIcon direction={event.iconVariant === 'flow-down' ? 'down' : 'up'} />
+                    return (
+                      <button
+                        key={event.id}
+                        type="button"
+                        onClick={() => setSelectedEventId(event.id)}
+                        className={`w-full rounded-xl border p-3 text-left transition-all duration-300 ${selectedEventId === event.id ? 'border-sky-300 bg-sky-50 shadow-sm' : 'border-border bg-background hover:bg-muted/50'} ${recentEventIds.includes(event.id) ? 'ring-2 ring-sky-200' : ''}`}
+                        style={recentEventIds.includes(event.id) ? { animation: 'insight-card-in 360ms ease-out' } : undefined}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+                              event.iconVariant === 'flow-down'
+                                ? 'bg-red-50 text-red-600'
+                                : 'bg-emerald-50 text-emerald-600'
+                            }`}>
+                              <FlowEventIcon direction={event.iconVariant === 'flow-down' ? 'down' : 'up'} />
+                            </div>
+                            <div className="line-clamp-2 text-sm font-medium text-foreground">{event.title}</div>
                           </div>
-                        )}
-                        <div className="line-clamp-2 text-sm font-medium text-foreground">{event.title}</div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <div className="text-[11px] text-muted-foreground">
-                          {formatDateTime(event.time, { style: 'short' })}
+                          <div className="shrink-0 text-[11px] text-muted-foreground">
+                            {formatDateTime(event.time, { style: 'short' })}
+                          </div>
                         </div>
-                        {event.kind === 'news' && event.sourceUrl && (
-                          <a
-                            href={event.sourceUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-muted-foreground transition-colors hover:text-foreground"
-                            onClick={(e) => e.stopPropagation()}
-                            aria-label={t('dashboard.insight.openSource', 'Open source')}
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true">
-                              <path d="M15 3h6v6"></path>
-                              <path d="M10 14 21 3"></path>
-                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                            </svg>
-                          </a>
-                        )}
-                      </div>
-                    </div>
+                        <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{event.summary}</div>
+                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+                            {event.evidence.slice(0, 2).map((item, index) => (
+                              <span
+                                key={`${event.id}-${index}`}
+                                className="max-w-[180px] truncate rounded-full bg-muted px-2 py-0.5"
+                              >
+                                {item}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                            <ReactionChip label={t('dashboard.insight.after15m', '15m later')} value={reaction15m} />
+                            <ReactionChip label={t('dashboard.insight.after1h', '1h later')} value={reaction1h} />
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
 
-                    {event.imageUrl && (
-                      <div className="mt-1.5 overflow-hidden rounded-md">
-                        <img
-                          src={event.imageUrl}
-                          alt=""
-                          className="h-[72px] w-full object-cover"
-                          loading="lazy"
-                          onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = 'none' }}
-                        />
-                      </div>
-                    )}
+              <div className="flex min-h-0 flex-col">
+                <div className="pb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  {t('dashboard.insight.newsFeedTitle', 'News')}
+                </div>
+                <div className="min-h-0 overflow-y-auto pr-1">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {focusedNewsEvents.map(event => {
+                      const reaction15m = formatReactionAtOffset(chartContext, event.time, 15 * 60 * 1000)
+                      const reaction1h = formatReactionAtOffset(chartContext, event.time, 60 * 60 * 1000)
 
-                    <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{event.summary}</div>
-                    <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
-                        {event.evidence.slice(0, 2).map((item, index) => (
-                          <span
-                            key={`${event.id}-${index}`}
-                            className="max-w-[180px] truncate rounded-full bg-muted px-2 py-0.5"
-                          >
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                        <ReactionChip label={t('dashboard.insight.after15m', '15m later')} value={reaction15m} />
-                        <ReactionChip label={t('dashboard.insight.after1h', '1h later')} value={reaction1h} />
-                      </div>
-                    </div>
-                  </button>
-                )
-              })}
+                      return (
+                        <button
+                          key={event.id}
+                          type="button"
+                          onClick={() => setSelectedEventId(event.id)}
+                          className={`rounded-xl border p-3 text-left transition-all duration-300 ${selectedEventId === event.id ? 'border-sky-300 bg-sky-50 shadow-sm' : 'border-border bg-background hover:bg-muted/50'} ${recentEventIds.includes(event.id) ? 'ring-2 ring-sky-200' : ''}`}
+                          style={recentEventIds.includes(event.id) ? { animation: 'insight-card-in 360ms ease-out' } : undefined}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div className="line-clamp-2 text-sm font-medium text-foreground">{event.title}</div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <div className="text-[11px] text-muted-foreground">
+                                {formatDateTime(event.time, { style: 'short' })}
+                              </div>
+                              {event.sourceUrl && (
+                                <a
+                                  href={event.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-muted-foreground transition-colors hover:text-foreground"
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-label={t('dashboard.insight.openSource', 'Open source')}
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true">
+                                    <path d="M15 3h6v6"></path>
+                                    <path d="M10 14 21 3"></path>
+                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                  </svg>
+                                </a>
+                              )}
+                            </div>
+                          </div>
+
+                          {event.imageUrl && (
+                            <div className="mt-1.5 overflow-hidden rounded-md">
+                              <img
+                                src={event.imageUrl}
+                                alt=""
+                                className="h-[72px] w-full object-cover"
+                                loading="lazy"
+                                onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = 'none' }}
+                              />
+                            </div>
+                          )}
+
+                          <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{event.summary}</div>
+                          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+                              {event.evidence.slice(0, 2).map((item, index) => (
+                                <span
+                                  key={`${event.id}-${index}`}
+                                  className="max-w-[180px] truncate rounded-full bg-muted px-2 py-0.5"
+                                >
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                              <ReactionChip label={t('dashboard.insight.after15m', '15m later')} value={reaction15m} />
+                              <ReactionChip label={t('dashboard.insight.after1h', '1h later')} value={reaction1h} />
+                            </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>

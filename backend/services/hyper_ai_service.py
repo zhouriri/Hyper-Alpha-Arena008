@@ -1115,6 +1115,234 @@ def start_onboarding_chat_task(
     return task_id
 
 
+def _build_insight_messages(
+    lang: str,
+    context: Dict[str, Any],
+    selected_event: Optional[Dict[str, Any]],
+) -> List[Dict[str, str]]:
+    """Build the one-shot Insight prompt without chat history, memory, or tools."""
+    use_zh = (lang or "").startswith("zh")
+    language_label = "Chinese" if use_zh else "English"
+
+    system_prompt = (
+        "You are Hyper AI inside Hyper Alpha Arena.\n"
+        f"Respond in {language_label}.\n"
+        "You analyze market intelligence for a retail crypto trader.\n"
+        "Use only the provided context.\n"
+        "Do not use external tools.\n"
+        "Return exactly one JSON object and nothing else.\n"
+        "Do not use markdown fences.\n"
+        "Use this exact schema:\n"
+        "{\n"
+        '  "sentiment": "bullish|bearish|mixed",\n'
+        '  "probability": 0-100 integer,\n'
+        '  "market_emotion": "short phrase",\n'
+        '  "headline": "one sentence conclusion",\n'
+        '  "summary": "2-3 sentence plain-language explanation",\n'
+        '  "next_cycle_period": "the next period matching the current chart interval",\n'
+        '  "next_cycle_target_price": number|null,\n'
+        '  "next_cycle_range_low": number|null,\n'
+        '  "next_cycle_range_high": number|null,\n'
+        '  "key_drivers": ["driver 1", "driver 2", "driver 3"],\n'
+        '  "risks": ["risk 1", "risk 2"],\n'
+        '  "explanation_markdown": "short markdown explanation with evidence bullets"\n'
+        "}\n"
+        "The probability must reflect directional confidence for the next cycle.\n"
+        "The next-cycle target and range must be your forecast for the next period, even if uncertain.\n"
+        'If evidence is mixed, set sentiment to "mixed" and explain the conflict clearly.\n'
+        "The context includes kline behavior, all relevant symbol news events, and selected exchange fund-flow behavior."
+    )
+
+    user_payload = {
+        "selected_event": selected_event,
+        "context": context,
+    }
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+    ]
+
+
+def stream_insight_response(
+    db: Session,
+    context: Dict[str, Any],
+    selected_event: Optional[Dict[str, Any]] = None,
+    lang: str = "en",
+) -> Generator[str, None, None]:
+    """Stream a one-shot Insight analysis without conversation persistence."""
+    llm_config = get_llm_config(db)
+    if not llm_config.get("configured"):
+        yield format_sse_event("error", {"message": "LLM not configured"})
+        return
+
+    base_url = llm_config["base_url"]
+    model = llm_config["model"]
+    api_key = llm_config["api_key"]
+    api_format = llm_config.get("api_format", "openai")
+
+    endpoints = build_chat_completion_endpoints(base_url, model)
+    if not endpoints:
+        yield format_sse_event("error", {"message": "Invalid API endpoint"})
+        return
+
+    headers = build_llm_headers(api_format, api_key)
+    messages = _build_insight_messages(lang or "en", context, selected_event)
+    body = build_llm_payload(
+        model=model,
+        messages=messages,
+        api_format=api_format,
+        stream=True,
+        temperature=0.2,
+    )
+
+    response = None
+    last_error = None
+    last_status_code = None
+    last_response_text = None
+
+    for attempt in range(API_MAX_RETRIES):
+        for endpoint in endpoints:
+            try:
+                response = requests.post(
+                    endpoint,
+                    headers=headers,
+                    json=body,
+                    stream=True,
+                    timeout=180,
+                )
+                last_status_code = response.status_code
+                last_response_text = response.text[:2000] if response.text else None
+                if response.status_code == 200:
+                    break
+                last_error = f"HTTP {response.status_code}"
+            except requests.exceptions.Timeout as e:
+                last_error = f"Timeout: {str(e)}"
+            except requests.exceptions.RequestException as e:
+                last_error = str(e)
+
+        if response and response.status_code == 200:
+            break
+
+        if not _should_retry_api(last_status_code, last_error):
+            break
+
+        if attempt < API_MAX_RETRIES - 1:
+            yield format_sse_event("retry", {
+                "attempt": attempt + 2,
+                "max_retries": API_MAX_RETRIES
+            })
+            time.sleep(_get_retry_delay(attempt))
+
+    if not response or response.status_code != 200:
+        error_parts = []
+        if last_error:
+            error_parts.append(f"error={last_error}")
+        if last_status_code:
+            error_parts.append(f"status={last_status_code}")
+        if last_response_text:
+            error_parts.append(f"response={last_response_text[:500]}")
+        error_detail = "; ".join(error_parts) if error_parts else "No response from API"
+        yield format_sse_event("error", {"message": error_detail})
+        return
+
+    content_parts: List[str] = []
+    reasoning_parts: List[str] = []
+
+    try:
+        for line in response.iter_lines():
+            if not line:
+                continue
+
+            line_str = line.decode("utf-8")
+            if not line_str.startswith("data: "):
+                continue
+
+            data_str = line_str[6:]
+            if data_str == "[DONE]":
+                break
+
+            try:
+                data = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+
+            if api_format == "anthropic":
+                event_type = data.get("type")
+                if event_type == "content_block_delta":
+                    delta = data.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        text = delta.get("text", "")
+                        if text:
+                            content_parts.append(text)
+                            yield format_sse_event("content", {"text": text})
+                elif event_type == "content_block_start":
+                    content_block = data.get("content_block", {})
+                    if content_block.get("type") == "thinking":
+                        thinking = content_block.get("thinking", "")
+                        if thinking:
+                            reasoning_parts.append(thinking)
+                            yield format_sse_event("reasoning", {"content": thinking})
+            else:
+                choices = data.get("choices", [])
+                if not choices:
+                    continue
+                delta = choices[0].get("delta", {})
+                text = delta.get("content", "")
+                if text:
+                    content_parts.append(text)
+                    yield format_sse_event("content", {"text": text})
+
+                reasoning = delta.get("reasoning_content", "")
+                if reasoning:
+                    reasoning_parts.append(reasoning)
+                    yield format_sse_event("reasoning", {"content": reasoning})
+
+        full_content = "".join(content_parts)
+        full_reasoning = "".join(reasoning_parts) if reasoning_parts else None
+
+        full_content, tag_thinking = strip_thinking_tags(full_content)
+        if tag_thinking:
+            full_reasoning = (full_reasoning + "\n\n" + tag_thinking).strip() if full_reasoning else tag_thinking
+
+        yield format_sse_event("done", {
+            "content": full_content.strip(),
+            "reasoning": full_reasoning,
+        })
+    except Exception as e:
+        yield format_sse_event("error", {"message": str(e)})
+
+
+def start_insight_task(
+    db: Session,
+    context: Dict[str, Any],
+    selected_event: Optional[Dict[str, Any]] = None,
+    lang: Optional[str] = None,
+) -> str:
+    """Start a one-shot Insight analysis task without chat conversation persistence."""
+    task_id = generate_task_id("insight")
+    manager = get_buffer_manager()
+    manager.create_task(task_id, None)
+
+    effective_lang = lang or "en"
+
+    def generator_func():
+        from database.connection import SessionLocal
+        task_db = SessionLocal()
+        try:
+            yield from stream_insight_response(
+                task_db,
+                context=context,
+                selected_event=selected_event,
+                lang=effective_lang,
+            )
+        finally:
+            task_db.close()
+
+    run_ai_task_in_background(task_id, generator_func)
+    return task_id
+
+
 def _parse_profile_data(content: str) -> Optional[Dict[str, str]]:
     """Parse [PROFILE_DATA]...[COMPLETE] block from AI response with tolerance."""
     import re

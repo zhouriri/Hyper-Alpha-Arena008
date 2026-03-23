@@ -19,7 +19,7 @@ Endpoints:
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
@@ -32,7 +32,8 @@ from services.hyper_ai_service import (
     get_or_create_conversation,
     get_conversation_messages,
     start_chat_task,
-    start_onboarding_chat_task
+    start_onboarding_chat_task,
+    start_insight_task,
 )
 from services.hyper_ai_llm_providers import get_all_providers, get_provider
 
@@ -61,6 +62,12 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[int] = None
     mode: Optional[str] = None  # "onboarding" for profile collection
     lang: Optional[str] = None  # "zh" or "en" for language preference
+
+
+class InsightRequest(BaseModel):
+    context: Dict[str, Any]
+    selected_event: Optional[Dict[str, Any]] = None
+    lang: Optional[str] = None
 
 
 # Endpoints
@@ -353,6 +360,25 @@ def start_chat(request: ChatRequest, db: Session = Depends(get_db)):
         "task_id": task_id,
         "conversation_id": conv.id
     }
+
+
+@router.post("/insight")
+def start_insight(request: InsightRequest, db: Session = Depends(get_db)):
+    """Start a one-shot Insight analysis task without chat conversation persistence."""
+    llm_config = get_llm_config(db)
+    if not llm_config.get("configured"):
+        raise HTTPException(
+            status_code=400,
+            detail="LLM not configured. Please complete onboarding first."
+        )
+
+    task_id = start_insight_task(
+        db=db,
+        context=request.context,
+        selected_event=request.selected_event,
+        lang=request.lang,
+    )
+    return {"task_id": task_id}
 
 
 # Memory endpoints

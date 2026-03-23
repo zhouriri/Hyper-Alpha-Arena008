@@ -245,6 +245,8 @@
       "oiFunding": "持仓 / 资金费率",
       "funding": "资金费率",
       "flowTitle": "资金流证据",
+      "whaleFlowTitle": "大户资金",
+      "newsFeedTitle": "新闻",
       "newsTitle": "新闻与大户资金",
       "totalInflow": "总流入",
       "totalOutflow": "总流出",

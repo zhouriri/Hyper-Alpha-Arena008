@@ -1619,6 +1619,20 @@ export interface NewsArticle {
   image_url?: string | null
 }
 
+export interface HyperAiInsightRequest {
+  context: Record<string, unknown>
+  selected_event?: Record<string, unknown> | null
+  lang?: string
+}
+
+export async function startHyperAiInsightAnalysis(payload: HyperAiInsightRequest) {
+  const response = await apiRequest('/hyper-ai/insight', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return response.json() as Promise<{ task_id: string }>
+}
+
 export interface NewsArticleListResponse {
   items: NewsArticle[]
   total: number

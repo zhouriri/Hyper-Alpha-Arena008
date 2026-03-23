@@ -56,6 +56,7 @@ def _load_recent_news(
             "sentiment": article.sentiment,
             "ai_summary": article.ai_summary,
             "relevance_score": article.relevance_score,
+            "image_url": article.image_url,
         })
     return items
 

@@ -102,25 +102,17 @@ Each skill follows a checkpoint-based workflow—the AI pauses at key steps to c
 
 ## Screenshots
 
-### Dashboard with Multi-Account Comparison
-![Dashboard Overview](screenshots/dashboard-overview.png)
-*Real-time asset curves for multiple AI traders with trade markers on individual curves*
+### Hyper AI
+![Hyper AI](screenshots/hyper_AI.png)
+*Your always-on AI operator for the entire platform*
 
-### Signal Pool Configuration
-![Signal Pool Configuration](screenshots/signal-pool-configuration.png)
-*Market flow signal monitoring - CVD, OI Delta, Funding Rate triggers*
+### Multi-Trader Arena
+![Multi-Trader Arena](screenshots/dashboard_arena.png)
+*Multi-trader control room with live arena view and coordinated market monitoring*
 
-### Attribution Analytics
-![Attribution Analytics](screenshots/attribution-analytics.png)
-*Performance breakdown and AI-powered strategy diagnosis*
-
-### AI Prompt Generator
-![AI Prompt Generator](screenshots/ai-prompt-generator.png)
-*Conversational AI assistant for strategy creation*
-
-### Technical Analysis
-![Technical Analysis](screenshots/ai-technical-analysis.png)
-*Built-in technical indicators and market data visualization*
+### Signal Detection
+![Signal Detection](screenshots/signal_new.png)
+*Market signal detection and trigger workflow with visual backtest context*
 
 ## Quick Start
 
