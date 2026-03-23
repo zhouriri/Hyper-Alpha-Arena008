@@ -1124,7 +1124,7 @@ def _build_insight_messages(
     use_zh = (lang or "").startswith("zh")
     language_instruction = (
         "以中文回复。\n"
-        "所有自然语言字段必须使用简体中文，包括 market_emotion、headline、summary、key_drivers、risks、explanation_markdown、next_cycle_period。\n"
+        "所有自然语言字段必须使用简体中文，包括 market_emotion、headline、summary、key_drivers.text、risks、explanation_markdown、next_cycle_period、confidence_basis、similar_pattern。\n"
         "即使输入数据或字段名是英文，输出内容也必须是中文，不能夹杂英文句子。\n"
     ) if use_zh else (
         "Respond in English.\n"
@@ -1139,6 +1139,8 @@ def _build_insight_messages(
         "Do not use external tools.\n"
         "Return exactly one JSON object and nothing else.\n"
         "Do not use markdown fences.\n"
+        "Think in four layers before producing the JSON: technical structure, fund-flow behavior, news/event sentiment, and the conflicts between them.\n"
+        "The final directional call must be grounded in those layers instead of giving a free-floating opinion.\n"
         "Use this exact schema:\n"
         "{\n"
         '  "sentiment": "bullish|bearish|mixed",\n'
@@ -1146,16 +1148,33 @@ def _build_insight_messages(
         '  "market_emotion": "short phrase",\n'
         '  "headline": "one sentence conclusion",\n'
         '  "summary": "2-3 sentence plain-language explanation",\n'
+        '  "sentiment_breakdown": {\n'
+        '    "technical": 0-100 integer,\n'
+        '    "flow": 0-100 integer,\n'
+        '    "news": 0-100 integer\n'
+        '  },\n'
         '  "next_cycle_period": "the next period matching the current chart interval",\n'
         '  "next_cycle_target_price": number|null,\n'
         '  "next_cycle_range_low": number|null,\n'
         '  "next_cycle_range_high": number|null,\n'
-        '  "key_drivers": ["driver 1", "driver 2", "driver 3"],\n'
+        '  "technical_levels": [\n'
+        '    {"price": number, "type": "support|resistance", "label": "short phrase"}\n'
+        '  ],\n'
+        '  "key_drivers": [\n'
+        '    {"text": "driver 1", "impact": "high|medium|low", "tone": "bullish|bearish|mixed"}\n'
+        '  ],\n'
         '  "risks": ["risk 1", "risk 2"],\n'
+        '  "confidence_basis": "one sentence explaining why the confidence level is justified",\n'
+        '  "similar_pattern": "short description of the nearest comparable market setup from recent behavior",\n'
         '  "explanation_markdown": "short markdown explanation with evidence bullets"\n'
         "}\n"
-        "The probability must reflect directional confidence for the next cycle.\n"
+        "The probability must reflect directional confidence for the next cycle and should be justified by the breakdown scores, not guessed in isolation.\n"
         "The next-cycle target and range must be your forecast for the next period, even if uncertain.\n"
+        "Use sentiment_breakdown to score each dimension independently: technical is based on kline structure, momentum, and nearby support/resistance; flow is based on large-order direction, OI change, and funding behavior; news is based on recent event tone, clustering, and relevance.\n"
+        "Use technical_levels to identify the most relevant nearby support and resistance levels from the provided chart context.\n"
+        "Use key_drivers to rank the most important catalysts. Impact must distinguish primary versus secondary drivers.\n"
+        "Use confidence_basis to state what specifically makes the confidence believable.\n"
+        "Use similar_pattern to describe the closest recent setup or regime match visible in the provided data. If there is no credible analogue, say that clearly.\n"
         'If evidence is mixed, set sentiment to "mixed" and explain the conflict clearly.\n'
         "The context includes kline behavior, all relevant symbol news events, and selected exchange fund-flow behavior."
     )

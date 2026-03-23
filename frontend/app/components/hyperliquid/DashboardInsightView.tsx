@@ -20,6 +20,25 @@ type InsightPeriod = '5m' | '15m' | '1h'
 type InsightWindow = '4h'
 type InsightAiState = 'idle' | 'monitoring' | 'thinking' | 'ready' | 'error'
 type InsightSentiment = 'bullish' | 'bearish' | 'mixed'
+type InsightDriverImpact = 'high' | 'medium' | 'low'
+
+interface InsightDriver {
+  text: string
+  impact: InsightDriverImpact
+  tone?: InsightSentiment
+}
+
+interface InsightSentimentBreakdown {
+  technical: number
+  flow: number
+  news: number
+}
+
+interface InsightTechnicalLevel {
+  price: number
+  type: 'support' | 'resistance'
+  label?: string
+}
 
 interface InsightChartPoint {
   time: number
@@ -49,12 +68,16 @@ interface StructuredAiInsight {
   market_emotion: string
   headline: string
   summary: string
+  sentiment_breakdown?: InsightSentimentBreakdown | null
   next_cycle_period: string
   next_cycle_target_price?: number | null
   next_cycle_range_low?: number | null
   next_cycle_range_high?: number | null
-  key_drivers: string[]
+  technical_levels: InsightTechnicalLevel[]
+  key_drivers: InsightDriver[]
   risks: string[]
+  confidence_basis?: string
+  similar_pattern?: string
   explanation_markdown?: string
 }
 
@@ -92,6 +115,89 @@ function formatPercent(value?: number | null, digits: number = 2) {
 
 function formatAbsoluteUsd(value?: number | null) {
   return formatCompactUsd(Math.abs(value || 0))
+}
+
+function formatPrice(value?: number | null, digits: number = 0) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+  return `$${value.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`
+}
+
+function getSentimentTheme(sentiment: InsightSentiment) {
+  if (sentiment === 'bullish') {
+    return {
+      text: 'text-emerald-600',
+      softText: 'text-emerald-700',
+      softBg: 'bg-emerald-50',
+      border: 'border-emerald-200/80',
+      glow: 'shadow-[0_0_32px_rgba(16,185,129,0.18)]',
+    }
+  }
+
+  if (sentiment === 'bearish') {
+    return {
+      text: 'text-red-600',
+      softText: 'text-red-700',
+      softBg: 'bg-red-50',
+      border: 'border-red-200/80',
+      glow: 'shadow-[0_0_32px_rgba(239,68,68,0.18)]',
+    }
+  }
+
+  return {
+    text: 'text-cyan-600',
+    softText: 'text-cyan-700',
+    softBg: 'bg-cyan-50',
+    border: 'border-cyan-200/80',
+    glow: 'shadow-[0_0_32px_rgba(8,145,178,0.18)]',
+  }
+}
+
+function getImpactBadgeClass(impact: InsightDriverImpact) {
+  if (impact === 'high') return 'border-transparent bg-foreground text-background'
+  if (impact === 'medium') return 'border-border bg-muted/80 text-foreground'
+  return 'border-border/80 bg-background text-muted-foreground'
+}
+
+function getBreakdownBarClass(value: number) {
+  if (value >= 60) return 'from-emerald-400 via-emerald-500 to-emerald-600'
+  if (value >= 40) return 'from-amber-300 via-amber-400 to-amber-500'
+  return 'from-rose-300 via-rose-400 to-rose-500'
+}
+
+function renderSemanticText(text: string) {
+  if (!text) return null
+
+  const pattern = /([+-]?\d+(?:\.\d+)?%|bullish|bearish|mixed|support|resistance|breakout|breakdown|accumulation|distribution|inflow|outflow|buying|selling|买盘|卖盘|看多|看空|中性|支撑|阻力|突破|跌破|吸筹|派发|流入|流出)/gi
+  const parts = text.split(pattern)
+
+  return parts.map((part, index) => {
+    if (!part) return null
+
+    const normalized = part.toLowerCase()
+    let className = ''
+
+    if (/^[+-]?\d+(?:\.\d+)?%$/.test(part)) {
+      className = part.startsWith('-') ? 'text-red-700' : 'text-emerald-700'
+    } else if ([
+      'bullish', 'support', 'breakout', 'accumulation', 'inflow', 'buying',
+      '买盘', '看多', '支撑', '突破', '吸筹', '流入',
+    ].includes(normalized) || ['买盘', '看多', '支撑', '突破', '吸筹', '流入'].includes(part)) {
+      className = 'text-emerald-700'
+    } else if ([
+      'bearish', 'resistance', 'breakdown', 'distribution', 'outflow', 'selling',
+      '卖盘', '看空', '阻力', '跌破', '派发', '流出',
+    ].includes(normalized) || ['卖盘', '看空', '阻力', '跌破', '派发', '流出'].includes(part)) {
+      className = 'text-red-700'
+    } else if (normalized === 'mixed' || part === '中性') {
+      className = 'text-cyan-700'
+    }
+
+    if (!className) return <span key={index}>{part}</span>
+    return <span key={index} className={`${className} font-medium`}>{part}</span>
+  })
 }
 
 function formatInsightTarget(
@@ -290,6 +396,301 @@ function DataPulse() {
   )
 }
 
+function InsightEmptyState() {
+  return (
+    <div className="h-full min-h-[220px]">
+      <DataPulse />
+    </div>
+  )
+}
+
+function InsightRefreshBadge({
+  active,
+}: {
+  active: boolean
+}) {
+  if (!active) return null
+
+  return (
+    <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-70" />
+      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-500" />
+    </span>
+  )
+}
+
+function SentimentGauge({
+  t,
+  sentiment,
+  probability,
+  marketEmotion,
+  headline,
+}: {
+  t: (key: string, fallback?: string, options?: Record<string, unknown>) => string
+  sentiment: InsightSentiment
+  probability: number
+  marketEmotion: string
+  headline: string
+}) {
+  const angle = -90 + clamp(probability, 0, 100) * 1.8
+  const theme = getSentimentTheme(sentiment)
+  const sentimentLabel = sentiment === 'bullish'
+    ? t('dashboard.insight.bullish', 'Bullish')
+    : sentiment === 'bearish'
+      ? t('dashboard.insight.bearish', 'Bearish')
+      : t('dashboard.insight.mixed', 'Mixed')
+
+  return (
+    <div className={`rounded-[1.4rem] border bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.94),_rgba(248,250,252,0.86)_58%,_rgba(241,245,249,0.84))] p-4 ${theme.border} ${theme.glow}`}>
+      <div className="flex items-start gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+            {t('dashboard.insight.liveInsight', 'Live Insight')}
+          </div>
+          <div className={`mt-2 text-2xl font-semibold uppercase ${theme.text}`}>
+            {sentimentLabel}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start">
+        <div className="w-40 shrink-0">
+          <div className="relative h-28 w-40">
+          <svg viewBox="0 0 200 120" className="h-full w-full overflow-visible">
+            <defs>
+              <linearGradient id="sentimentGaugeArc" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#f87171" />
+                <stop offset="50%" stopColor="#f59e0b" />
+                <stop offset="100%" stopColor="#10b981" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M 20 100 A 80 80 0 0 1 180 100"
+              fill="none"
+              stroke="rgba(148,163,184,0.18)"
+              strokeWidth="16"
+              strokeLinecap="round"
+            />
+            <path
+              d="M 20 100 A 80 80 0 0 1 180 100"
+              fill="none"
+              stroke="url(#sentimentGaugeArc)"
+              strokeWidth="16"
+              strokeLinecap="round"
+            />
+            <g transform={`rotate(${angle} 100 100)`}>
+              <line x1="100" y1="100" x2="100" y2="42" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className={theme.text} />
+              <circle cx="100" cy="100" r="9" fill="white" stroke="currentColor" strokeWidth="4" className={theme.text} />
+            </g>
+          </svg>
+          </div>
+          <div className="mt-1 flex items-center justify-between px-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            <span>{t('dashboard.insight.bearish', 'Bearish')}</span>
+            <span>{t('dashboard.insight.bullish', 'Bullish')}</span>
+          </div>
+          <div className="mt-3 text-center">
+            <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+              {t('dashboard.insight.probability', 'Probability')}
+            </div>
+            <div className="mt-1 text-3xl font-semibold tabular-nums text-foreground">
+              {probability}%
+            </div>
+          </div>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className={`text-lg font-semibold leading-6 ${theme.softText}`}>
+            {headline}
+          </div>
+          <div className="mt-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+            {t('dashboard.insight.marketEmotion', 'Market Emotion')}
+          </div>
+          <div className="mt-1 inline-flex max-w-full rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-foreground/90">
+            <span className="truncate">{marketEmotion}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BreakdownBars({
+  t,
+  breakdown,
+}: {
+  t: (key: string, fallback?: string, options?: Record<string, unknown>) => string
+  breakdown: InsightSentimentBreakdown
+}) {
+  const items = [
+    { key: 'technical', label: t('dashboard.insight.technicalScore', 'Technical'), value: breakdown.technical },
+    { key: 'flow', label: t('dashboard.insight.flowScore', 'Flow'), value: breakdown.flow },
+    { key: 'news', label: t('dashboard.insight.newsScore', 'News'), value: breakdown.news },
+  ].sort((a, b) => b.value - a.value)
+
+  const strongest = items[0]?.key
+
+  return (
+    <div className="rounded-[1.35rem] border border-border/80 bg-background/80 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+          {t('dashboard.insight.sentimentBreakdown', 'Signal Breakdown')}
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          {t('dashboard.insight.strongestSignal', 'Strongest')}: {items[0]?.label || '-'}
+        </div>
+      </div>
+      <div className="mt-4 space-y-3">
+        {items.map((item) => (
+          <div key={item.key} className={`rounded-xl border px-3 py-2 ${item.key === strongest ? 'border-sky-300 bg-background shadow-[0_0_0_1px_rgba(125,211,252,0.32)]' : 'border-border/70 bg-background/70'}`}>
+            <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
+              <div className="font-medium text-foreground">{item.label}</div>
+              <div className="tabular-nums text-muted-foreground">
+                {item.value}/100{item.key === strongest ? ` · ${t('dashboard.insight.dominantSignal', 'Dominant')}` : ''}
+              </div>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/70">
+              <div
+                className={`h-full rounded-full bg-gradient-to-r ${getBreakdownBarClass(item.value)} ${item.key === strongest ? 'shadow-[0_0_18px_rgba(14,165,233,0.24)]' : ''}`}
+                style={{ width: `${clamp(item.value, 0, 100)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PriceRangeBar({
+  t,
+  insight,
+  currentPrice,
+}: {
+  t: (key: string, fallback?: string, options?: Record<string, unknown>) => string
+  insight: StructuredAiInsight
+  currentPrice?: number | null
+}) {
+  const supports = insight.technical_levels.filter(level => level.type === 'support').sort((a, b) => a.price - b.price)
+  const resistances = insight.technical_levels.filter(level => level.type === 'resistance').sort((a, b) => a.price - b.price)
+  const levelPrices = insight.technical_levels.map(level => level.price)
+  const targetCandidates = [
+    ...levelPrices,
+    insight.next_cycle_target_price,
+    insight.next_cycle_range_low,
+    insight.next_cycle_range_high,
+    currentPrice,
+  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+
+  if (!targetCandidates.length) return null
+
+  const minPrice = Math.min(...targetCandidates)
+  const maxPrice = Math.max(...targetCandidates)
+  const span = Math.max(maxPrice - minPrice, Math.max(maxPrice * 0.002, 1))
+  const start = minPrice - span * 0.08
+  const end = maxPrice + span * 0.08
+  const positionOf = (value?: number | null) => `${clamp(((value || 0) - start) / Math.max(end - start, 1) * 100, 0, 100)}%`
+  const compactSupports = supports.slice(0, 2)
+  const compactResistances = resistances.slice(0, 2)
+
+  return (
+    <div className="rounded-[1.35rem] border border-border/80 bg-background/80 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+          {t('dashboard.insight.nextCycleTarget', 'Next Cycle Target')}
+        </div>
+        <div className="text-sm font-medium text-foreground">
+          {formatInsightTarget(t, insight)}
+        </div>
+      </div>
+
+      <div className="relative mt-5 h-12 rounded-full bg-gradient-to-r from-emerald-100 via-slate-100 to-rose-100">
+        {typeof insight.next_cycle_range_low === 'number' && typeof insight.next_cycle_range_high === 'number' && (
+          <div
+            className="absolute inset-y-2 rounded-full bg-sky-500/18"
+            style={{
+              left: positionOf(insight.next_cycle_range_low),
+              width: `calc(${positionOf(insight.next_cycle_range_high)} - ${positionOf(insight.next_cycle_range_low)})`,
+            }}
+          />
+        )}
+
+        {compactSupports.map((level, index) => (
+          <div key={`support-${index}`} className="absolute inset-y-0" style={{ left: positionOf(level.price) }}>
+            <div className="absolute inset-y-1 -translate-x-1/2 border-l border-emerald-500/70" />
+            <div className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.32)]" />
+          </div>
+        ))}
+
+        {compactResistances.map((level, index) => (
+          <div key={`resistance-${index}`} className="absolute inset-y-0" style={{ left: positionOf(level.price) }}>
+            <div className="absolute inset-y-1 -translate-x-1/2 border-l border-rose-500/70" />
+            <div className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.28)]" />
+          </div>
+        ))}
+
+        {typeof currentPrice === 'number' && (
+          <div className="absolute inset-y-0" style={{ left: positionOf(currentPrice) }}>
+            <div className="absolute inset-y-0 -translate-x-1/2 border-l-2 border-slate-700" />
+          </div>
+        )}
+
+        {typeof insight.next_cycle_target_price === 'number' && (
+          <div className="absolute inset-y-0" style={{ left: positionOf(insight.next_cycle_target_price) }}>
+            <div className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-sky-500 bg-white shadow-sm" />
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 grid gap-2 sm:grid-cols-2">
+        {compactSupports.map((level, index) => (
+          <div key={`support-chip-${index}`} className="flex items-center justify-between rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs">
+            <span className="font-medium text-emerald-800">{level.label || t('dashboard.insight.support', 'Support')}</span>
+            <span className="tabular-nums text-emerald-700">{formatPrice(level.price)}</span>
+          </div>
+        ))}
+        {compactResistances.map((level, index) => (
+          <div key={`resistance-chip-${index}`} className="flex items-center justify-between rounded-xl border border-rose-200/80 bg-rose-50/70 px-3 py-2 text-xs">
+            <span className="font-medium text-rose-800">{level.label || t('dashboard.insight.resistance', 'Resistance')}</span>
+            <span className="tabular-nums text-rose-700">{formatPrice(level.price)}</span>
+          </div>
+        ))}
+        {typeof currentPrice === 'number' && (
+          <div className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-xs">
+            <span className="font-medium text-slate-800">{t('dashboard.insight.currentPrice', 'Current')}</span>
+            <span className="tabular-nums text-slate-700">{formatPrice(currentPrice)}</span>
+          </div>
+        )}
+        {typeof insight.next_cycle_target_price === 'number' && (
+          <div className="flex items-center justify-between rounded-xl border border-sky-200/80 bg-sky-50/80 px-3 py-2 text-xs">
+            <span className="font-medium text-sky-800">{t('dashboard.insight.targetMarker', 'Target')}</span>
+            <span className="tabular-nums text-sky-700">{formatPrice(insight.next_cycle_target_price)}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DriverCard({
+  driver,
+}: {
+  driver: InsightDriver
+}) {
+  return (
+    <div className={`rounded-2xl border p-3 ${driver.impact === 'high' ? 'border-border bg-muted/50' : 'border-border/80 bg-background/80'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2.5">
+          <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${driver.tone === 'bullish' ? 'bg-emerald-500' : driver.tone === 'bearish' ? 'bg-red-500' : 'bg-cyan-500'}`} />
+          <div className="text-sm leading-6 text-foreground">{renderSemanticText(driver.text)}</div>
+        </div>
+        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ${getImpactBadgeClass(driver.impact)}`}>
+          {driver.impact}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function parseStructuredInsight(raw: string): StructuredAiInsight | null {
   const normalized = raw.trim()
   if (!normalized) return null
@@ -307,18 +708,71 @@ function parseStructuredInsight(raw: string): StructuredAiInsight | null {
     if (!['bullish', 'bearish', 'mixed'].includes(sentiment)) return null
     if (!Number.isFinite(probability)) return null
 
+    const rawBreakdown = parsed?.sentiment_breakdown
+    const sentiment_breakdown = rawBreakdown && typeof rawBreakdown === 'object'
+      ? {
+          technical: clamp(Math.round(Number(rawBreakdown.technical) || 0), 0, 100),
+          flow: clamp(Math.round(Number(rawBreakdown.flow) || 0), 0, 100),
+          news: clamp(Math.round(Number(rawBreakdown.news) || 0), 0, 100),
+        }
+      : null
+
+    const technical_levels = Array.isArray(parsed?.technical_levels)
+      ? parsed.technical_levels
+        .map((item: any) => {
+          const price = Number(item?.price)
+          if (!Number.isFinite(price)) return null
+          const type = item?.type === 'support' ? 'support' : item?.type === 'resistance' ? 'resistance' : null
+          if (!type) return null
+          return {
+            price,
+            type,
+            label: typeof item?.label === 'string' ? item.label.trim() : '',
+          } as InsightTechnicalLevel
+        })
+        .filter((item): item is InsightTechnicalLevel => Boolean(item))
+      : []
+
+    const key_drivers = Array.isArray(parsed?.key_drivers)
+      ? parsed.key_drivers
+        .map((item: any) => {
+          if (typeof item === 'string') {
+            return {
+              text: item.trim(),
+              impact: 'medium' as InsightDriverImpact,
+              tone: sentiment,
+            }
+          }
+
+          const text = typeof item?.text === 'string' ? item.text.trim() : ''
+          if (!text) return null
+          const impact = item?.impact === 'high' || item?.impact === 'medium' || item?.impact === 'low'
+            ? item.impact
+            : 'medium'
+          const tone = item?.tone === 'bullish' || item?.tone === 'bearish' || item?.tone === 'mixed'
+            ? item.tone
+            : sentiment
+          return { text, impact, tone } as InsightDriver
+        })
+        .filter((item): item is InsightDriver => Boolean(item?.text))
+      : []
+
     return {
       sentiment,
       probability: clamp(Math.round(probability), 0, 100),
       market_emotion: String(parsed?.market_emotion || '').trim(),
       headline: String(parsed?.headline || '').trim(),
       summary: String(parsed?.summary || '').trim(),
+      sentiment_breakdown,
       next_cycle_period: String(parsed?.next_cycle_period || '').trim(),
       next_cycle_target_price: typeof parsed?.next_cycle_target_price === 'number' ? parsed.next_cycle_target_price : null,
       next_cycle_range_low: typeof parsed?.next_cycle_range_low === 'number' ? parsed.next_cycle_range_low : null,
       next_cycle_range_high: typeof parsed?.next_cycle_range_high === 'number' ? parsed.next_cycle_range_high : null,
-      key_drivers: Array.isArray(parsed?.key_drivers) ? parsed.key_drivers.map(String).filter(Boolean) : [],
+      technical_levels,
+      key_drivers,
       risks: Array.isArray(parsed?.risks) ? parsed.risks.map(String).filter(Boolean) : [],
+      confidence_basis: typeof parsed?.confidence_basis === 'string' ? parsed.confidence_basis.trim() : '',
+      similar_pattern: typeof parsed?.similar_pattern === 'string' ? parsed.similar_pattern.trim() : '',
       explanation_markdown: typeof parsed?.explanation_markdown === 'string' ? parsed.explanation_markdown.trim() : '',
     }
   } catch {
@@ -655,9 +1109,6 @@ export default function DashboardInsightView() {
     setAiState('thinking')
     setAiStatusText('')
     setAiError('')
-    setAiResult('')
-    setAiInsight(null)
-    setAiGeneratedAt(null)
 
     try {
       const data = await startHyperAiInsightAnalysis({
@@ -755,11 +1206,10 @@ export default function DashboardInsightView() {
     runInsightAnalysis(latestEventSignature)
   }, [aiContext, aiInsight, aiInsightEnabled, completedSignature, i18n.language, latestEventSignature])
 
-  const aiSentimentColor = aiInsight?.sentiment === 'bullish'
-    ? 'text-emerald-600'
-    : aiInsight?.sentiment === 'bearish'
-      ? 'text-red-600'
-      : 'text-amber-600'
+  const aiTheme = getSentimentTheme(aiInsight?.sentiment || 'mixed')
+  const latestChartPrice = chartContext[chartContext.length - 1]?.close ?? null
+  const showRefreshBadge = aiInsightEnabled && aiState === 'thinking' && !!aiInsight
+  const showInlineError = aiState === 'error' && !aiInsight
   const netFlowDisplay = getNetFlowPresentation(
     t,
     summary?.net_inflow,
@@ -1054,22 +1504,22 @@ export default function DashboardInsightView() {
       <div className="flex min-h-0 flex-col">
         <Card className="flex h-full min-h-0 flex-col overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between gap-3 py-3">
-            <CardTitle className="text-sm">{t('dashboard.insight.biasTitle', 'Hyper AI Auto Insight')}</CardTitle>
+            <div className="flex min-w-0 items-center gap-3">
+              <CardTitle className="text-sm">{t('dashboard.insight.biasTitle', 'Hyper AI Auto Insight')}</CardTitle>
+              <InsightRefreshBadge active={showRefreshBadge} />
+            </div>
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               <Switch
                 checked={aiInsightEnabled}
                 onCheckedChange={(checked) => {
                   setAiInsightEnabled(checked)
-                  setAiState(checked ? 'monitoring' : 'idle')
+                  setAiState(checked ? (aiInsight ? 'ready' : 'monitoring') : 'idle')
                   setAiError('')
                   setAiStatusText('')
                   if (!checked) {
                     analysisSeqRef.current += 1
                     activeTaskRef.current = false
                     setCompletedSignature('')
-                    setAiResult('')
-                    setAiInsight(null)
-                    setAiGeneratedAt(null)
                   }
                 }}
               />
@@ -1078,12 +1528,10 @@ export default function DashboardInsightView() {
           </CardHeader>
           <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-4">
             {loading ? (
-              <DataPulse />
-            ) : !aiInsightEnabled ? (
-              <DataPulse />
-            ) : aiState === 'thinking' ? (
-              <DataPulse />
-            ) : aiState === 'error' ? (
+              <InsightEmptyState />
+            ) : !aiInsightEnabled && !aiInsight ? (
+              <InsightEmptyState />
+            ) : showInlineError ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4">
                 <div className="text-sm font-medium text-foreground">
                   {t('dashboard.insight.aiFailed', 'Hyper AI analysis failed.')}
@@ -1093,79 +1541,91 @@ export default function DashboardInsightView() {
                 </div>
               </div>
             ) : aiInsight ? (
-              <div className="rounded-2xl border border-border bg-gradient-to-br from-background to-muted/60 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                      {t('dashboard.insight.liveInsight', 'Live Insight')}
-                    </div>
-                    <div className={`mt-2 text-3xl font-semibold uppercase ${aiSentimentColor}`}>
-                      {aiInsight.sentiment}
-                    </div>
+              <div className="rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(241,245,249,0.74))] p-4">
+                <SentimentGauge
+                  t={t}
+                  sentiment={aiInsight.sentiment}
+                  probability={aiInsight.probability}
+                  marketEmotion={aiInsight.market_emotion}
+                  headline={aiInsight.headline}
+                />
+
+                <div className="mt-4 rounded-[1.35rem] border border-border/80 bg-background/85 p-4">
+                  <div className="text-sm font-medium leading-7 text-foreground">{aiInsight.summary}</div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                    <span className={`rounded-full border px-2.5 py-1 ${aiTheme.border} ${aiTheme.softBg} ${aiTheme.softText}`}>
+                      {t('dashboard.insight.nextCycleLabel', 'Window')}: {aiInsight.next_cycle_period}
+                    </span>
+                    {!!aiInsight.similar_pattern && (
+                      <span className="rounded-full border border-border/80 bg-muted/45 px-2.5 py-1 text-foreground/80">
+                        {t('dashboard.insight.similarPattern', 'Similar pattern')}: {aiInsight.similar_pattern}
+                      </span>
+                    )}
                   </div>
-                  <div className="text-right">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                      {t('dashboard.insight.probability', 'Probability')}
+                  {!!aiInsight.confidence_basis && (
+                    <div className="mt-3 rounded-xl border border-border/70 bg-muted/35 px-3 py-2 text-xs italic text-muted-foreground">
+                      {t('dashboard.insight.confidenceBasis', 'Confidence basis')}: {aiInsight.confidence_basis}
                     </div>
-                    <div className="mt-1 text-4xl font-bold tabular-nums text-foreground">
-                      {aiInsight.probability}%
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-border bg-background/80 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                      {t('dashboard.insight.marketEmotion', 'Market Emotion')}
-                    </div>
-                    <div className="mt-2 text-base font-semibold text-foreground">{aiInsight.market_emotion}</div>
-                    <div className="mt-2 text-sm text-muted-foreground">{aiInsight.headline}</div>
-                  </div>
-                  <div className="rounded-xl border border-border bg-background/80 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                      {t('dashboard.insight.nextCycleTarget', 'Next Cycle Target')}
-                    </div>
-                    <div className="mt-2 text-base font-semibold text-foreground">
-                      {formatInsightTarget(t, aiInsight)}
-                    </div>
-                    <div className="mt-2 text-sm text-muted-foreground">{aiInsight.next_cycle_period}</div>
-                  </div>
-                </div>
-                <div className="mt-4 rounded-xl border border-border bg-background/80 p-3">
-                  <div className="text-sm font-medium text-foreground">{aiInsight.summary}</div>
+                  )}
                   {aiGeneratedAt && (
-                    <div className="mt-2 text-xs text-muted-foreground">
+                    <div className="mt-3 text-xs text-muted-foreground">
                       {t('dashboard.insight.aiGeneratedAt', 'Generated at {{time}}', {
                         time: formatDateTime(aiGeneratedAt, { style: 'short' }),
                       })}
                     </div>
                   )}
                 </div>
+
+                {aiInsight.sentiment_breakdown && (
+                  <div className="mt-4">
+                    <BreakdownBars t={t} breakdown={aiInsight.sentiment_breakdown} />
+                  </div>
+                )}
+
+                {(aiInsight.technical_levels.length > 0 || typeof aiInsight.next_cycle_target_price === 'number' || typeof aiInsight.next_cycle_range_low === 'number' || typeof aiInsight.next_cycle_range_high === 'number') && (
+                  <div className="mt-4">
+                    <PriceRangeBar t={t} insight={aiInsight} currentPrice={latestChartPrice} />
+                  </div>
+                )}
+
                 {!!aiInsight.key_drivers.length && (
-                  <div className="rounded-xl border border-border bg-background/80 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                      {t('dashboard.insight.keyDrivers', 'Key Drivers')}
+                  <div className="mt-4 rounded-[1.35rem] border border-border/80 bg-background/85 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                        {t('dashboard.insight.keyDrivers', 'Key Drivers')}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {t('dashboard.insight.priorityDrivers', 'Ranked by impact')}
+                      </div>
                     </div>
-                    <div className="mt-2 space-y-1 text-sm text-foreground">
+                    <div className="mt-3 space-y-2.5">
                       {aiInsight.key_drivers.map((item, index) => (
-                        <div key={`driver-${index}`}>• {item}</div>
+                        <DriverCard key={`driver-${index}`} driver={item} />
                       ))}
                     </div>
                   </div>
                 )}
+
                 {!!aiInsight.risks.length && (
-                  <div className="rounded-xl border border-border bg-background/80 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  <div className="mt-4 rounded-[1.35rem] border border-border/80 bg-background/85 p-4">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                       {t('dashboard.insight.risks', 'Risks')}
                     </div>
-                    <div className="mt-2 space-y-1 text-sm text-foreground">
+                    <div className="mt-3 grid gap-2">
                       {aiInsight.risks.map((item, index) => (
-                        <div key={`risk-${index}`}>• {item}</div>
+                        <div key={`risk-${index}`} className="rounded-xl border border-rose-200/80 bg-rose-50/60 px-3 py-2 text-sm text-rose-900">
+                          {item}
+                        </div>
                       ))}
                     </div>
                   </div>
                 )}
+
                 {!!aiInsight.explanation_markdown && (
-                  <div className="max-h-64 overflow-y-auto rounded-xl border border-border bg-background/80 p-3">
+                  <div className="mt-4 max-h-64 overflow-y-auto rounded-[1.35rem] border border-border/80 bg-background/85 p-4">
+                    <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {t('dashboard.insight.explanation', 'Explanation')}
+                    </div>
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       className="prose prose-sm max-w-none text-foreground dark:prose-invert"
@@ -1176,9 +1636,7 @@ export default function DashboardInsightView() {
                 )}
               </div>
             ) : (
-              <div className="rounded-2xl border border-border bg-gradient-to-br from-background to-muted/60 p-4">
-                <DataPulse />
-              </div>
+              <InsightEmptyState />
             )}
           </CardContent>
         </Card>
