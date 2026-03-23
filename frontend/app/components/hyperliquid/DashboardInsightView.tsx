@@ -171,21 +171,51 @@ function getBucketStart(time: number, bucketMs: number) {
   return Math.floor(time / bucketMs) * bucketMs
 }
 
+function formatBucketLabel(start: number, end: number) {
+  const startDate = new Date(start)
+  const endDate = new Date(end)
+  const sameDay = startDate.toDateString() === endDate.toDateString()
+
+  const startLabel = startDate.toLocaleString(undefined, {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+
+  const endLabel = endDate.toLocaleString(undefined, sameDay ? {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  } : {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+
+  return `${startLabel} - ${endLabel}`
+}
+
 function ReactionChip({
   label,
   value,
+  compact = false,
 }: {
   label: string
   value: number | null
+  compact?: boolean
 }) {
   if (value === null) {
-    return <span className="rounded-full bg-muted px-2 py-0.5">{label}: -</span>
+    return <span className={`rounded-full bg-muted ${compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5'}`}>{label}: -</span>
   }
 
   const positive = value >= 0
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${
+      className={`inline-flex items-center rounded-full ${compact ? 'gap-0.5 px-1.5 py-0.5 text-[10px]' : 'gap-1 px-2 py-0.5'} ${
         positive
           ? 'bg-emerald-50 text-emerald-700'
           : 'bg-red-50 text-red-700'
@@ -531,7 +561,7 @@ export default function DashboardInsightView() {
   const focusedBucketLabel = useMemo(() => {
     const start = focusedBucketStart
     const end = focusedBucketStart + eventBucketMs
-    return `${formatDateTime(start, { style: 'short' })} - ${formatDateTime(end, { style: 'time' })}`
+    return formatBucketLabel(start, end)
   }, [eventBucketMs, focusedBucketStart])
 
   const chartMarkers = useMemo(() => {
@@ -914,20 +944,20 @@ export default function DashboardInsightView() {
                           </div>
                         </div>
                         <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{event.summary}</div>
-                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[10px] text-muted-foreground">
                           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
                             {event.evidence.slice(0, 2).map((item, index) => (
                               <span
                                 key={`${event.id}-${index}`}
-                                className="max-w-[180px] truncate rounded-full bg-muted px-2 py-0.5"
+                                className="max-w-[140px] truncate rounded-full bg-muted px-1.5 py-0.5"
                               >
                                 {item}
                               </span>
                             ))}
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                            <ReactionChip label={t('dashboard.insight.after15m', '15m later')} value={reaction15m} />
-                            <ReactionChip label={t('dashboard.insight.after1h', '1h later')} value={reaction1h} />
+                            <ReactionChip label={t('dashboard.insight.after15m', '15m later')} value={reaction15m} compact />
+                            <ReactionChip label={t('dashboard.insight.after1h', '1h later')} value={reaction1h} compact />
                           </div>
                         </div>
                       </button>
@@ -994,20 +1024,20 @@ export default function DashboardInsightView() {
                           )}
 
                           <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{event.summary}</div>
-                          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+                          <div className="mt-2 space-y-1.5 text-[10px] text-muted-foreground">
+                            <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
                               {event.evidence.slice(0, 2).map((item, index) => (
                                 <span
                                   key={`${event.id}-${index}`}
-                                  className="max-w-[180px] truncate rounded-full bg-muted px-2 py-0.5"
+                                  className="max-w-[140px] truncate rounded-full bg-muted px-1.5 py-0.5"
                                 >
                                   {item}
                                 </span>
                               ))}
                             </div>
-                            <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                              <ReactionChip label={t('dashboard.insight.after15m', '15m later')} value={reaction15m} />
-                              <ReactionChip label={t('dashboard.insight.after1h', '1h later')} value={reaction1h} />
+                            <div className="flex items-center gap-1.5 whitespace-nowrap">
+                              <ReactionChip label={t('dashboard.insight.after15m', '15m later')} value={reaction15m} compact />
+                              <ReactionChip label={t('dashboard.insight.after1h', '1h later')} value={reaction1h} compact />
                             </div>
                           </div>
                         </button>

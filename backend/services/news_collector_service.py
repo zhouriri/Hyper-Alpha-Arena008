@@ -32,7 +32,7 @@ DEFAULT_NEWS_SOURCES = [
     {
         "type": "rss",
         "adapter": "rss_generic",
-        "url": "https://coinjournal.net/news/feed/",
+        "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
         "enabled": True,
         "interval_seconds": 300,
         "config": {},
@@ -69,6 +69,46 @@ DEFAULT_NEWS_SOURCES = [
         "interval_seconds": 300,
         "config": {},
     },
+    {
+        "type": "rss",
+        "adapter": "rss_generic",
+        "url": "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "enabled": True,
+        "interval_seconds": 300,
+        "config": {},
+    },
+    {
+        "type": "rss",
+        "adapter": "rss_generic",
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+        "enabled": True,
+        "interval_seconds": 300,
+        "config": {},
+    },
+    {
+        "type": "rss",
+        "adapter": "rss_generic",
+        "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "enabled": True,
+        "interval_seconds": 300,
+        "config": {},
+    },
+    {
+        "type": "rss",
+        "adapter": "rss_generic",
+        "url": "https://feeds.feedburner.com/TheHackersNews",
+        "enabled": True,
+        "interval_seconds": 300,
+        "config": {},
+    },
+    {
+        "type": "rss",
+        "adapter": "rss_generic",
+        "url": "https://www.wired.com/feed/tag/ai/latest/rss",
+        "enabled": True,
+        "interval_seconds": 300,
+        "config": {},
+    },
 ]
 
 NEWS_SOURCES_CONFIG_KEY = "news_sources"
@@ -98,6 +138,9 @@ DEFAULT_SYMBOL_KEYWORDS = {
         "pce", "personal consumption",
         "retail sales", "treasury", "bond yield",
         "tariff", "trade war", "sanctions",
+        "geopolitical", "oil price", "crude oil",
+        "dollar index", "dxy",
+        "s&p 500", "nasdaq", "dow jones",
     ],
 }
 
