@@ -347,11 +347,24 @@ class NewsCollectorService:
         if not items:
             return
 
+        # Dedup repeated entries within the same feed payload before DB writes.
+        # Some feeds (e.g. BBC Business) can return duplicate items in a single
+        # response, and SessionLocal uses autoflush=False, so pending inserts are
+        # not visible to the per-row DB existence check until commit time.
+        deduped_items = []
+        seen_keys = set()
+        for item in items:
+            item_key = (item.source_domain, item.source_url)
+            if item_key in seen_keys:
+                continue
+            seen_keys.add(item_key)
+            deduped_items.append(item)
+
         # Store to database with dedup
         db = SessionLocal()
         try:
             new_count = 0
-            for item in items:
+            for item in deduped_items:
                 if self._store_article(db, item, keyword_map):
                     new_count += 1
             db.commit()
@@ -360,7 +373,7 @@ class NewsCollectorService:
             if new_count > 0:
                 logger.info(
                     "[NewsCollector] %s: %d new / %d total fetched",
-                    source_url, new_count, len(items)
+                    source_url, new_count, len(deduped_items)
                 )
         except Exception as e:
             db.rollback()

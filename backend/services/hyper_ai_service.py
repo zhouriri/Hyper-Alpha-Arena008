@@ -1122,11 +1122,18 @@ def _build_insight_messages(
 ) -> List[Dict[str, str]]:
     """Build the one-shot Insight prompt without chat history, memory, or tools."""
     use_zh = (lang or "").startswith("zh")
-    language_label = "Chinese" if use_zh else "English"
+    language_instruction = (
+        "以中文回复。\n"
+        "所有自然语言字段必须使用简体中文，包括 market_emotion、headline、summary、key_drivers、risks、explanation_markdown、next_cycle_period。\n"
+        "即使输入数据或字段名是英文，输出内容也必须是中文，不能夹杂英文句子。\n"
+    ) if use_zh else (
+        "Respond in English.\n"
+        "All natural-language fields must be written in English.\n"
+    )
 
     system_prompt = (
         "You are Hyper AI inside Hyper Alpha Arena.\n"
-        f"Respond in {language_label}.\n"
+        f"{language_instruction}"
         "You analyze market intelligence for a retail crypto trader.\n"
         "Use only the provided context.\n"
         "Do not use external tools.\n"

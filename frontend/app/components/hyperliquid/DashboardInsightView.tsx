@@ -944,8 +944,8 @@ export default function DashboardInsightView() {
                           </div>
                         </div>
                         <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{event.summary}</div>
-                        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[10px] text-muted-foreground">
-                          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+                        <div className="mt-2 space-y-1.5 text-[10px] text-muted-foreground">
+                          <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
                             {event.evidence.slice(0, 2).map((item, index) => (
                               <span
                                 key={`${event.id}-${index}`}
@@ -955,7 +955,7 @@ export default function DashboardInsightView() {
                               </span>
                             ))}
                           </div>
-                          <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
                             <ReactionChip label={t('dashboard.insight.after15m', '15m later')} value={reaction15m} compact />
                             <ReactionChip label={t('dashboard.insight.after1h', '1h later')} value={reaction1h} compact />
                           </div>
