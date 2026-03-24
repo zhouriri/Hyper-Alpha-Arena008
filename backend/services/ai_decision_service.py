@@ -688,18 +688,41 @@ def _build_prompt_context(
     # Legacy format (kept for backward compatibility with old templates)
     output_format_legacy = OUTPUT_FORMAT_JSON.replace(SYMBOL_PLACEHOLDER, output_symbol_choices or "SYMBOL")
 
-    # Hyperliquid-specific context - Get leverage settings from unified function
-    # This ensures leverage values match the wallet configuration for the current environment
+    # Get leverage settings from the wallet source that matches the target exchange.
     if db:
-        from services.hyperliquid_environment import get_leverage_settings
         try:
-            leverage_settings = get_leverage_settings(db, account.id, environment)
-            max_leverage = leverage_settings["max_leverage"]
-            default_leverage = leverage_settings["default_leverage"]
+            if exchange == "binance":
+                from database.models import BinanceWallet
+
+                wallet = db.query(BinanceWallet).filter(
+                    BinanceWallet.account_id == account.id,
+                    BinanceWallet.environment == environment,
+                    BinanceWallet.is_active == "true"
+                ).first()
+
+                if wallet:
+                    max_leverage = wallet.max_leverage
+                    default_leverage = wallet.default_leverage
+                else:
+                    logger.warning(
+                        f"No Binance wallet found for account {account.id} in {environment}, using defaults"
+                    )
+                    max_leverage = 20
+                    default_leverage = 1
+            else:
+                from services.hyperliquid_environment import get_leverage_settings
+
+                leverage_settings = get_leverage_settings(db, account.id, environment)
+                max_leverage = leverage_settings["max_leverage"]
+                default_leverage = leverage_settings["default_leverage"]
         except Exception as e:
             logger.warning(f"Failed to get leverage settings for account {account.id}: {e}, using fallback")
-            max_leverage = getattr(account, "max_leverage", 3)
-            default_leverage = getattr(account, "default_leverage", 1)
+            if exchange == "binance":
+                max_leverage = 20
+                default_leverage = 1
+            else:
+                max_leverage = getattr(account, "max_leverage", 3)
+                default_leverage = getattr(account, "default_leverage", 1)
     else:
         # Fallback if db not provided (should not happen in normal operation)
         logger.warning(f"No db session provided to _build_prompt_context, using Account table fallback for leverage")
