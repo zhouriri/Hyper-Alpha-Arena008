@@ -376,6 +376,10 @@ def validate_tp_sl_prices(
     return len(errors) == 0, errors
 
 
+# Global thread pool for real-time program execution (prevents unbounded thread creation)
+_realtime_thread_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="program-rt")
+
+
 def execute_strategy(
     code: str,
     market_data: MarketData,
@@ -383,5 +387,5 @@ def execute_strategy(
     timeout_seconds: int = 60,
 ) -> ExecutionResult:
     """Convenience function to execute strategy code."""
-    executor = SandboxExecutor(timeout_seconds=timeout_seconds)
+    executor = SandboxExecutor(timeout_seconds=timeout_seconds, thread_pool=_realtime_thread_pool)
     return executor.execute(code, market_data, params)

@@ -148,7 +148,7 @@ class TaskScheduler:
             })
         return jobs
 
-    async def _execute_account_snapshot(self, account_id: int):
+    def _execute_account_snapshot(self, account_id: int):
         """
         Internal method to execute account snapshot update
 
