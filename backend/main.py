@@ -105,16 +105,25 @@ def _start_runtime_monitor():
     def monitor_loop():
         from services.ai_stream_service import get_ai_runtime_stats
 
-        thread_level = -1
-        task_queue_level = -1
-        bg_queue_level = -1
+        thread_level = 0
+        task_queue_level = 0
+        bg_queue_level = 0
+
+        def get_threshold_level(value: int, thresholds: tuple[int, ...]) -> int:
+            level = 0
+            for idx, threshold in enumerate(thresholds, start=1):
+                if value >= threshold:
+                    level = idx
+                else:
+                    break
+            return level
 
         while runtime_monitor_running:
             try:
                 thread_count = _get_current_thread_count()
                 ai_stats = get_ai_runtime_stats()
 
-                next_thread_level = sum(thread_count >= t for t in THREAD_WARNING_THRESHOLDS) if thread_count >= 0 else -1
+                next_thread_level = get_threshold_level(thread_count, THREAD_WARNING_THRESHOLDS) if thread_count >= 0 else 0
                 if next_thread_level > thread_level:
                     threshold = THREAD_WARNING_THRESHOLDS[next_thread_level - 1]
                     logger.warning(
@@ -127,7 +136,7 @@ def _start_runtime_monitor():
                     )
                 thread_level = next_thread_level
 
-                next_task_queue_level = sum(ai_stats["task_queue"] >= t for t in AI_QUEUE_WARNING_THRESHOLDS)
+                next_task_queue_level = get_threshold_level(ai_stats["task_queue"], AI_QUEUE_WARNING_THRESHOLDS)
                 if next_task_queue_level > task_queue_level:
                     threshold = AI_QUEUE_WARNING_THRESHOLDS[next_task_queue_level - 1]
                     logger.warning(
@@ -140,7 +149,7 @@ def _start_runtime_monitor():
                     )
                 task_queue_level = next_task_queue_level
 
-                next_bg_queue_level = sum(ai_stats["background_queue"] >= t for t in AI_QUEUE_WARNING_THRESHOLDS)
+                next_bg_queue_level = get_threshold_level(ai_stats["background_queue"], AI_QUEUE_WARNING_THRESHOLDS)
                 if next_bg_queue_level > bg_queue_level:
                     threshold = AI_QUEUE_WARNING_THRESHOLDS[next_bg_queue_level - 1]
                     logger.warning(
