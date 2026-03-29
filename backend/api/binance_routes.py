@@ -101,7 +101,7 @@ class ManualOrderRequest(BaseModel):
 # API Endpoints
 
 @router.post("/accounts/{account_id}/setup")
-async def setup_wallet(
+def setup_wallet(
     account_id: int,
     request: BinanceSetupRequest,
     db: Session = Depends(get_db)
@@ -194,7 +194,7 @@ async def setup_wallet(
 
 
 @router.get("/accounts/{account_id}/config")
-async def get_config(account_id: int, db: Session = Depends(get_db)):
+def get_config(account_id: int, db: Session = Depends(get_db)):
     """Get Binance wallet configuration for an account"""
     wallets = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id
@@ -244,7 +244,7 @@ async def get_config(account_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/accounts/{account_id}/balance")
-async def get_balance(
+def get_balance(
     account_id: int,
     environment: Optional[str] = None,
     db: Session = Depends(get_db)
@@ -271,7 +271,7 @@ async def get_balance(
 
 
 @router.get("/accounts/{account_id}/positions")
-async def get_positions(
+def get_positions(
     account_id: int,
     environment: Optional[str] = None,
     db: Session = Depends(get_db)
@@ -298,7 +298,7 @@ async def get_positions(
 
 
 @router.post("/accounts/{account_id}/order")
-async def place_order(
+def place_order(
     account_id: int,
     request: ManualOrderRequest,
     environment: Optional[str] = None,
@@ -362,7 +362,7 @@ async def place_order(
 
 
 @router.post("/accounts/{account_id}/close-position")
-async def close_position(
+def close_position(
     account_id: int,
     symbol: str,
     environment: Optional[str] = None,
@@ -393,7 +393,7 @@ async def close_position(
 
 
 @router.delete("/accounts/{account_id}/wallet")
-async def delete_wallet(
+def delete_wallet(
     account_id: int,
     environment: str,
     db: Session = Depends(get_db)
@@ -415,7 +415,7 @@ async def delete_wallet(
 
 
 @router.get("/accounts/{account_id}/summary")
-async def get_account_summary(
+def get_account_summary(
     account_id: int,
     environment: Optional[str] = None,
     db: Session = Depends(get_db)
@@ -460,7 +460,7 @@ async def get_account_summary(
 
 
 @router.get("/accounts/{account_id}/rate-limit")
-async def get_rate_limit(
+def get_rate_limit(
     account_id: int,
     environment: Optional[str] = None,
     db: Session = Depends(get_db)
@@ -489,7 +489,7 @@ async def get_rate_limit(
 
 
 @router.get("/price/{symbol}")
-async def get_price(symbol: str):
+def get_price(symbol: str):
     """
     Get current price for a symbol from Binance Futures.
     This is a public endpoint that doesn't require authentication.
@@ -519,7 +519,7 @@ async def get_price(symbol: str):
 
 
 @router.get("/wallets/all")
-async def get_all_binance_wallets(db: Session = Depends(get_db)):
+def get_all_binance_wallets(db: Session = Depends(get_db)):
     """
     Get all Binance wallets across all accounts for manual trading page.
     Returns wallet info with masked API keys.
@@ -560,7 +560,7 @@ async def get_all_binance_wallets(db: Session = Depends(get_db)):
 
 
 @router.get("/accounts/{account_id}/trading-stats")
-async def get_binance_trading_stats(
+def get_binance_trading_stats(
     account_id: int,
     environment: Optional[str] = None,
     db: Session = Depends(get_db)
@@ -616,7 +616,7 @@ async def get_binance_trading_stats(
 
 
 @router.post("/check-rebate-eligibility")
-async def check_rebate_eligibility(
+def check_rebate_eligibility(
     api_key: str,
     secret_key: str,
     environment: str = "mainnet"
@@ -683,7 +683,7 @@ class ConfirmLimitedBindingRequest(BaseModel):
 
 
 @router.post("/accounts/{account_id}/confirm-limited-binding")
-async def confirm_limited_binding(
+def confirm_limited_binding(
     account_id: int,
     request: ConfirmLimitedBindingRequest,
     db: Session = Depends(get_db)
@@ -751,7 +751,7 @@ async def confirm_limited_binding(
 
 
 @router.get("/accounts/{account_id}/daily-quota")
-async def get_daily_quota(account_id: int, db: Session = Depends(get_db)):
+def get_daily_quota(account_id: int, db: Session = Depends(get_db)):
     """
     Get daily quota usage for Binance mainnet non-rebate accounts.
 
@@ -835,7 +835,7 @@ class BinanceSymbolSelectionRequest(BaseModel):
 
 
 @router.get("/symbols/available")
-async def list_available_symbols():
+def list_available_symbols():
     """Return cached Binance tradable symbols (refreshed periodically)."""
     from services.binance_symbol_service import get_available_symbols_info, MAX_WATCHLIST_SYMBOLS
     info = get_available_symbols_info()
@@ -847,7 +847,7 @@ async def list_available_symbols():
 
 
 @router.get("/symbols/watchlist")
-async def get_symbol_watchlist():
+def get_symbol_watchlist():
     """Return the currently configured Binance watchlist."""
     from services.binance_symbol_service import get_selected_symbols, MAX_WATCHLIST_SYMBOLS
     symbols = get_selected_symbols()
@@ -858,7 +858,7 @@ async def get_symbol_watchlist():
 
 
 @router.put("/symbols/watchlist")
-async def update_symbol_watchlist(payload: BinanceSymbolSelectionRequest):
+def update_symbol_watchlist(payload: BinanceSymbolSelectionRequest):
     """Update Binance watchlist (max 10 symbols).
     Also updates Binance data collectors to use the new symbols.
     """
