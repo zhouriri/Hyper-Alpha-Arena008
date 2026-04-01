@@ -62,7 +62,7 @@ export default function NotificationConfigModal({
       const configData = await configRes.json()
       const signalsData = await signalsRes.json()
       setConfig(configData.config || { ai_trader: true, program_trader: true, signal_pools: {} })
-      setSignalPools((signalsData.pools || []).filter((pool: SignalPool) => (pool.source_type || 'market_signals') === 'market_signals'))
+      setSignalPools((signalsData.pools || []).filter((pool: SignalPool) => pool.enabled))
     } catch (err) {
       console.error('Failed to fetch notification config:', err)
     } finally {

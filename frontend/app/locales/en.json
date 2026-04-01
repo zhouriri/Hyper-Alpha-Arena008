@@ -551,7 +551,7 @@
       "descriptionLabel": "Description",
       "descriptionPlaceholder": "What market condition does this signal detect?",
       "exchangeLabel": "Exchange",
-      "exchangeDesc": "Select the exchange data source for this signal",
+      "exchangeDesc": "Select the target exchange for this pool",
       "metricLabel": "Metric",
       "compositeConfig": "Composite Signal Configuration",
       "directionLabel": "Direction",

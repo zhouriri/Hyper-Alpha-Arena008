@@ -139,6 +139,7 @@ class SignalPoolInfo(BaseModel):
     symbols: List[str]
     enabled: bool
     exchange: str = "hyperliquid"
+    source_type: Optional[str] = "market_signals"
 
 
 class AccountInfo(BaseModel):
@@ -629,7 +630,6 @@ def list_signal_pools(db: Session = Depends(get_db)):
     pools = db.query(SignalPool).filter(
         SignalPool.enabled == True,
         SignalPool.is_deleted != True,
-        (SignalPool.source_type == None) | (SignalPool.source_type == "market_signals"),
     ).all()
     result = []
     for pool in pools:
@@ -645,6 +645,7 @@ def list_signal_pools(db: Session = Depends(get_db)):
             symbols=symbols or [],
             enabled=pool.enabled,
             exchange=pool.exchange or "hyperliquid",
+            source_type=pool.source_type or "market_signals",
         ))
     return result
 

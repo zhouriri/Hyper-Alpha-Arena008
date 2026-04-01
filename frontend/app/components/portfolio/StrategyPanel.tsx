@@ -129,7 +129,7 @@ export default function StrategyPanel({
         const data = await signalsResponse.json()
         const pools: SignalPool[] = data.pools || []
         // Only show enabled signal pools
-        setSignalPools(pools.filter((p) => p.enabled && (p.source_type || 'market_signals') === 'market_signals'))
+        setSignalPools(pools.filter((p) => p.enabled))
       }
 
       if (globalResponse.ok) {

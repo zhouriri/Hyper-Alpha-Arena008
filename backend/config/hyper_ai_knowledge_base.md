@@ -137,13 +137,40 @@ Yes. Common setups:
 ### Q: How do I connect Hyper Insight wallet signals?
 Hyper Insight wallet signals are configured in two places:
 
-1. Track wallets on `hyper.akooi.com`
-2. Open HAA → `Signals` → `Wallet Tracking`
+1. Track wallets on `https://hyper.akooi.com/`
+2. Open Hyper Alpha Arena → `Signals` → `Wallet Tracking`
 3. Enable the Hyper Insight connection
 4. Create a wallet-tracking signal pool from the synced wallet list
 
+Suggested user-facing guidance:
+- Explain Hyper Insight as the wallet intelligence site where users track wallets and review wallet behavior
+- Explain Hyper Alpha Arena as the place where those tracked wallet signals are connected and used
+- Prefer product paths and links over internal implementation details
+- Do not mention internal tool names, API names, or tokens in user replies
+
 Important rules:
 - Hyper Insight is the source of truth for tracked wallets
-- HAA consumes synced wallets but does not edit them locally
+- Hyper Alpha Arena consumes synced wallets but does not edit them locally
 - New synced wallets do not automatically enter an existing pool
 - Wallet-tracking pools do not support backtest in Phase 5
+
+### Q: Can Hyper AI tell me which wallets are currently tracked?
+Yes.
+
+Recommended usage:
+- First confirm `Hyper Alpha Arena -> Signals -> Wallet Tracking` is connected
+- Then read the exact wallet list currently synced into this Hyper Alpha Arena session
+- Then choose one of those wallets for deeper analysis if needed
+
+### Q: Can Hyper AI analyze a tracked wallet for me?
+Yes, if the wallet is already tracked in Hyper Insight and Wallet Tracking sync is connected in Hyper Alpha Arena.
+
+Important limitation:
+- Hyper AI can read detailed address data and recent fills
+- Recent fills are only a recent activity window, not the wallet's complete all-time trade history
+- Hyper AI should treat style conclusions as analysis based on available data, not as guaranteed full-history facts
+
+If analysis is unavailable:
+- First check `Hyper Alpha Arena -> Signals -> Wallet Tracking` and confirm sync is connected
+- Then confirm the wallet already appears in the synced wallet list
+- If sync is connected and the wallet is already visible in the synced list but analysis still fails, explain that the problem is system-side rather than a tracking issue

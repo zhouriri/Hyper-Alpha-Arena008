@@ -521,6 +521,7 @@ class ProgramExecutionService:
         # Extract trigger context from pool (matches AI Trader's {trigger_context})
         signal_pool_name = pool.get("pool_name", "") or ""
         pool_logic = pool.get("logic", "OR") or "OR"
+        wallet_event = pool.get("wallet_event") if trigger_type == "wallet_signal" else None
 
         # Build trigger market regime snapshot if this is a signal trigger
         trigger_market_regime = None
@@ -550,6 +551,7 @@ class ProgramExecutionService:
             signal_pool_name=signal_pool_name,
             pool_logic=pool_logic,
             triggered_signals=triggered_signals or [],
+            wallet_event=wallet_event if isinstance(wallet_event, dict) else None,
             # Trigger market regime snapshot
             trigger_market_regime=trigger_market_regime,
             # Environment info
@@ -614,6 +616,7 @@ class ProgramExecutionService:
                     "signal_pool_name": pool.get("pool_name"),
                     "pool_logic": market_data.pool_logic if market_data else "OR",
                     "triggered_signals": market_data.triggered_signals if market_data else [],
+                    "wallet_event": market_data.wallet_event if market_data else None,
                     "trigger_market_regime": {
                         "regime": market_data.trigger_market_regime.regime,
                         "conf": market_data.trigger_market_regime.conf,

@@ -199,6 +199,8 @@ class SignalDetectionService:
                         "symbol": symbol,
                         "triggered_signals": triggered_signals,
                     }
+                    if pool_trigger.get("trigger_type") == "wallet_signal":
+                        event_data["wallet_event"] = pool_trigger.get("wallet_event")
                     results = enqueue_system_event(db, "signal_triggered", event_data)
                     if results:
                         try:

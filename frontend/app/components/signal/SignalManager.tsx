@@ -2524,7 +2524,6 @@ export default function SignalManager() {
                     setPoolForm(prev => ({
                       ...prev,
                       source_type: v,
-                      exchange: v === 'wallet_tracking' ? 'hyperliquid' : prev.exchange,
                       logic: v === 'wallet_tracking' ? 'OR' : prev.logic,
                       signal_ids: v === 'market_signals' ? prev.signal_ids : [],
                       symbols: v === 'market_signals' ? prev.symbols : [],
@@ -2557,39 +2556,41 @@ export default function SignalManager() {
                     : t('signals.dialog.marketSignalsTypeHint', 'Market pools continue to use symbols, signal definitions, and exchange-specific trigger logic.')}
                 </p>
               </div>
-              {poolForm.source_type === 'market_signals' && (
-                <div>
-                  <Label>{t('signals.dialog.exchangeLabel', 'Exchange')}</Label>
-                  <Select value={poolForm.exchange} onValueChange={v => {
+              <div>
+                <Label>{t('signals.dialog.exchangeLabel', 'Exchange')}</Label>
+                <Select value={poolForm.exchange} onValueChange={v => {
+                  if (poolForm.source_type === 'market_signals') {
                     const matchingSignalIds = poolForm.signal_ids.filter(id => {
                       const signal = signals.find(s => s.id === id)
                       return signal?.exchange === v
                     })
                     setPoolForm(prev => ({ ...prev, exchange: v, signal_ids: matchingSignalIds }))
                     loadWatchlist(v)
-                  }}>
-                    <SelectTrigger>
-                      <SelectValue>
-                        <span className="flex items-center gap-2">
-                          {poolForm.exchange === 'hyperliquid' ? <HyperliquidLogo /> : <BinanceLogo />}
-                          {poolForm.exchange === 'hyperliquid' ? 'Hyperliquid' : 'Binance'}
-                        </span>
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="hyperliquid">
-                        <span className="flex items-center gap-2"><HyperliquidLogo />Hyperliquid</span>
-                      </SelectItem>
-                      <SelectItem value="binance">
-                        <span className="flex items-center gap-2"><BinanceLogo />Binance</span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('signals.dialog.exchangeDesc', 'Select the exchange data source for this signal')}
-                  </p>
-                </div>
-              )}
+                    return
+                  }
+                  setPoolForm(prev => ({ ...prev, exchange: v }))
+                }}>
+                  <SelectTrigger>
+                    <SelectValue>
+                      <span className="flex items-center gap-2">
+                        {poolForm.exchange === 'hyperliquid' ? <HyperliquidLogo /> : <BinanceLogo />}
+                        {poolForm.exchange === 'hyperliquid' ? 'Hyperliquid' : 'Binance'}
+                      </span>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hyperliquid">
+                      <span className="flex items-center gap-2"><HyperliquidLogo />Hyperliquid</span>
+                    </SelectItem>
+                    <SelectItem value="binance">
+                      <span className="flex items-center gap-2"><BinanceLogo />Binance</span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('signals.dialog.exchangeDesc', 'Select the target exchange for this pool')}
+                </p>
+              </div>
               <div className="flex items-center gap-2 pt-2">
                 <Switch checked={poolForm.enabled} onCheckedChange={v => setPoolForm(prev => ({ ...prev, enabled: v }))} />
                 <Label>{t('signals.dialog.enabledLabel', 'Enabled')}</Label>

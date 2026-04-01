@@ -61,6 +61,8 @@ class HyperInsightWalletService:
     def __init__(self) -> None:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._runner_task: Optional[asyncio.Task] = None
+        self._callback_worker_task: Optional[asyncio.Task] = None
+        self._callback_queue: Optional[asyncio.Queue[tuple[str, dict[str, Any], dict[str, Any]]]] = None
         self._refresh_event: Optional[asyncio.Event] = None
         self._shutdown = False
         self._ws: Optional[WebSocketClientProtocol] = None
@@ -83,11 +85,18 @@ class HyperInsightWalletService:
     async def startup(self) -> None:
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
+        if self._callback_queue is None:
+            self._callback_queue = asyncio.Queue(maxsize=100)
         if self._refresh_event is None:
             self._refresh_event = asyncio.Event()
         if self._runner_task is None or self._runner_task.done():
             self._shutdown = False
             self._runner_task = asyncio.create_task(self._runner_loop(), name="hyper-insight-wallet-service")
+        if self._callback_worker_task is None or self._callback_worker_task.done():
+            self._callback_worker_task = asyncio.create_task(
+                self._callback_worker_loop(),
+                name="hyper-insight-wallet-callback-worker",
+            )
         await self.refresh_runtime()
 
     async def shutdown(self) -> None:
@@ -95,6 +104,13 @@ class HyperInsightWalletService:
         if self._refresh_event is not None:
             self._refresh_event.set()
         await self._close_ws()
+        if self._callback_worker_task and not self._callback_worker_task.done():
+            self._callback_worker_task.cancel()
+            try:
+                await self._callback_worker_task
+            except asyncio.CancelledError:
+                pass
+        self._callback_worker_task = None
         if self._runner_task and not self._runner_task.done():
             self._runner_task.cancel()
             try:
@@ -316,6 +332,7 @@ class HyperInsightWalletService:
         triggered_at = self._event_timestamp_to_naive_datetime(event.get("timestamp"))
         event_address = str(event.get("address") or "").strip().lower()
         event_type = str(event.get("event_type") or "").strip()
+        callback_payloads: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
         with SessionLocal() as db:
             pools = (
                 db.query(SignalPool)
@@ -364,14 +381,29 @@ class HyperInsightWalletService:
                     "detail": event.get("detail"),
                     "event_timestamp": event.get("timestamp"),
                 }
-                db.add(
-                    SignalTriggerLog(
-                        signal_id=None,
-                        pool_id=pool.id,
-                        symbol=(event.get("symbol") or WALLET_TRIGGER_SYMBOL)[:20],
-                        trigger_value=json.dumps(trigger_value),
-                        triggered_at=triggered_at,
-                        market_regime=None,
+                trigger_log = SignalTriggerLog(
+                    signal_id=None,
+                    pool_id=pool.id,
+                    symbol=(event.get("symbol") or WALLET_TRIGGER_SYMBOL)[:20],
+                    trigger_value=json.dumps(trigger_value),
+                    triggered_at=triggered_at,
+                    market_regime=None,
+                )
+                db.add(trigger_log)
+                db.flush()
+                callback_payloads.append(
+                    (
+                        (event.get("symbol") or WALLET_TRIGGER_SYMBOL)[:20],
+                        {
+                            "pool_id": pool.id,
+                            "pool_name": pool.pool_name,
+                            "logic": pool.logic or "OR",
+                            "trigger_log_id": trigger_log.id,
+                            "trigger_type": "wallet_signal",
+                            "wallet_event": trigger_value,
+                            "signals_triggered": [],
+                        },
+                        {},
                     )
                 )
 
@@ -379,6 +411,17 @@ class HyperInsightWalletService:
 
         async with self._state_lock:
             self._state["last_event_at"] = triggered_at.isoformat()
+
+        if callback_payloads and self._callback_queue is not None:
+            for payload in callback_payloads:
+                try:
+                    self._callback_queue.put_nowait(payload)
+                except asyncio.QueueFull:
+                    logger.warning(
+                        "[HyperInsightWallet] Callback queue full; dropping wallet callback for pool=%s symbol=%s",
+                        payload[1].get("pool_id"),
+                        payload[0],
+                    )
 
     def _event_timestamp_to_naive_datetime(self, timestamp_ms: Any) -> datetime:
         if isinstance(timestamp_ms, (int, float)) and timestamp_ms > 0:
@@ -415,6 +458,29 @@ class HyperInsightWalletService:
             except Exception:
                 pass
             self._ws = None
+
+    async def _callback_worker_loop(self) -> None:
+        from services.signal_detection_service import signal_detection_service
+
+        while not self._shutdown:
+            try:
+                if self._callback_queue is None:
+                    await asyncio.sleep(0.1)
+                    continue
+                symbol, pool_trigger, market_data = await self._callback_queue.get()
+                try:
+                    await asyncio.to_thread(
+                        signal_detection_service._notify_callbacks,
+                        symbol,
+                        pool_trigger,
+                        market_data,
+                    )
+                finally:
+                    self._callback_queue.task_done()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("[HyperInsightWallet] Callback worker error: %s", exc)
 
 
 hyper_insight_wallet_service = HyperInsightWalletService()

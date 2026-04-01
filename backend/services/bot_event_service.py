@@ -84,6 +84,21 @@ def _format_event_message(event_type: str, data: Dict[str, Any]) -> str:
     if event_type == "signal_triggered":
         pool_name = data.get('pool_name', 'Unknown')
         symbol = data.get('symbol', 'N/A')
+        wallet_event = data.get('wallet_event')
+        if isinstance(wallet_event, dict):
+            event_type_name = wallet_event.get('event_type', 'wallet_event')
+            summary = wallet_event.get('summary') or 'Wallet event triggered'
+            address = str(wallet_event.get('address', ''))[:6]
+            address_tail = str(wallet_event.get('address', ''))[-4:]
+            short_address = f"{address}...{address_tail}" if address and address_tail else "N/A"
+            return (
+                f"{header}"
+                f"🔔 【{pool_name}】 Wallet signal triggered\n"
+                f"{summary}\n"
+                f"Type: {event_type_name}\n"
+                f"Address: {short_address}\n"
+                f"Symbol: {symbol}"
+            )
         triggered = data.get('triggered_signals', [])
         signals_text = ", ".join(
             f"{s.get('signal_name', s.get('metric', 'N/A'))}={s.get('current_value', 'N/A'):.4f}"
