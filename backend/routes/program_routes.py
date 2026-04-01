@@ -403,6 +403,8 @@ def _get_available_apis() -> Dict[str, Any]:
         "MarketData_properties": {
             "data.trigger_symbol": "Symbol that triggered this evaluation",
             "data.trigger_type": "Trigger type: 'signal' or 'scheduled'",
+            "data.signal_source_type": "Optional signal source subtype, e.g. 'wallet_tracking' for Hyper Insight wallet signals",
+            "data.wallet_event": "Optional wallet signal payload with address, event_type, summary, and detail fields",
             "data.available_balance": "Available balance in USD",
             "data.total_equity": "Total account equity",
             "data.positions": "Dict[str, Position] of current open positions",

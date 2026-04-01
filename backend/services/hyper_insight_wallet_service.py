@@ -399,6 +399,8 @@ class HyperInsightWalletService:
                             "pool_name": pool.pool_name,
                             "logic": pool.logic or "OR",
                             "trigger_log_id": trigger_log.id,
+                            # Downstream consumers first identify this as a wallet-origin event,
+                            # then normalize it back into the existing signal family where needed.
                             "trigger_type": "wallet_signal",
                             "wallet_event": trigger_value,
                             "signals_triggered": [],
