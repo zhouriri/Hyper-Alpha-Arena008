@@ -1106,6 +1106,18 @@ def _build_prompt_context(
                     lines.append(f"direction: {detail.get('direction')}")
                 if detail.get("notional_value") is not None:
                     lines.append(f"notional_value: {detail.get('notional_value')}")
+                if detail.get("entry_price") is not None:
+                    lines.append(f"entry_price: {detail.get('entry_price')}")
+                if detail.get("leverage") is not None:
+                    lines.append(f"leverage: {detail.get('leverage')}")
+                if detail.get("unrealized_pnl") is not None:
+                    lines.append(f"unrealized_pnl: {detail.get('unrealized_pnl')}")
+                if detail.get("liquidation_price") is not None:
+                    lines.append(f"liquidation_price: {detail.get('liquidation_price')}")
+                if detail.get("old_value") is not None:
+                    lines.append(f"old_value: {detail.get('old_value')}")
+                if detail.get("new_value") is not None:
+                    lines.append(f"new_value: {detail.get('new_value')}")
                 if detail.get("closed_pnl") is not None:
                     lines.append(f"closed_pnl: {detail.get('closed_pnl')}")
                 if detail.get("average_price") is not None:
